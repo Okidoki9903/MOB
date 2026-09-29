@@ -115,7 +115,12 @@ export class Builder {
       const na = g.attributes.normal.array;
       for (let i = 0; i < pa.length; i++) { pos.push(pa[i]); nor.push(na[i]); }
       for (let i = 0; i < pa.length / 3; i++) {
-        col.push(color.r, color.g, color.b);
+        // Baked soft cavity / sun-facing variation adds material depth for free
+        // at runtime. Smooth world-space variation avoids noisy triangle edges.
+        const j = i * 3;
+        const grain = Math.sin(pa[j] * 3.1 + pa[j + 2] * 2.7) * 0.018;
+        const shade = 0.93 + Math.max(-0.7, na[j + 1]) * 0.07 + grain;
+        col.push(color.r * shade, color.g * shade, color.b * shade);
         limb.push(L[0], L[1]);
         piv.push(P[0], P[1], P[2]);
       }
@@ -231,6 +236,7 @@ export function kidGeometry() {
 // Slingshot held in the right hand. `tier` 0..4 changes look.
 export function slingshotGeometry(tier) {
   const b = new Builder();
+  tier = Math.max(0, Math.min(4, Math.floor(Number(tier) || 0)));
   const wood = [0x9a6532, 0x6b6f78, 0xffc53a, 0xff6a2a, 0xa35cff][tier];
   const band = [0xc23b2a, 0x2a2a2a, 0xd8261c, 0xffe14d, 0x5cf6ff][tier];
   const s = [1, 1.1, 1.2, 1.3, 1.45][tier];
@@ -481,7 +487,11 @@ function hut(b, r, x, z, s) {
   b.add(Lathe([[1.02, 0.35], [1.03, 0.45]], 20), 0x8f4a28, [x, 0, z], [0, 0, 0], s);
   b.add(Lathe([[1.55, 1.0], [1.35, 1.25], [0.9, 1.8], [0.35, 2.3], [0.08, 2.55], [0.001, 2.6]], 20), 0xd9b25f, [x, 0, z], [0, 0, 0], s);
   b.add(Lathe([[1.56, 0.98], [1.5, 1.08]], 20), 0xb88f3c, [x, 0, z], [0, 0, 0], s);
+  // Painted ochre bands and a tied roof cap remain part of the single draw call.
+  b.add(Lathe([[1.025, 0.72], [1.02, 0.79]], 20), 0xf0cf8c, [x, 0, z], [0, 0, 0], s);
+  b.add(Cyl(0.045, 0.06, 0.28, 6), 0x70503b, [x, 2.65 * s, z], [0, 0, 0], s);
   const dx = Math.sin(rot), dz = Math.cos(rot);
+  b.add(RoundedBox(0.65, 0.91, 0.15, 0.08), 0xe5b878, [x + dx * 0.94 * s, 0.455 * s, z + dz * 0.94 * s], [0, rot, 0], s);
   b.add(RoundedBox(0.5, 0.8, 0.2, 0.08), 0x3b2412, [x + dx * 0.95 * s, 0.4 * s, z + dz * 0.95 * s], [0, rot, 0], s);
 }
 function granary(b, r, x, z, s) {
@@ -682,10 +692,14 @@ export function skyMaterial() {
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 sun; varying vec3 vP;
       void main(){
-        float h = vP.y;
+        vec3 direction = normalize(vP);
+        float h = direction.y;
         vec3 c = h > 0.0 ? mix(mid, top, pow(clamp(h*1.6,0.0,1.0), 0.7)) : mix(mid, bot, clamp(-h*4.0,0.0,1.0));
-        float s = max(dot(normalize(vP), sun), 0.0);
+        float s = max(dot(direction, sun), 0.0);
         c += vec3(1.0,0.85,0.55) * (pow(s, 400.0) * 1.5 + pow(s, 12.0) * 0.35);
+        // Defined solar disc and a broad warm aerial haze.
+        c = mix(c, vec3(1.0, 0.94, 0.75), smoothstep(0.9993, 0.99965, s) * 0.9);
+        c += vec3(0.11, 0.045, 0.015) * exp(-abs(h - 0.035) * 18.0);
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
@@ -694,17 +708,25 @@ export function skyMaterial() {
 export function tileTexture(label, kind) {
   const [c, g] = canvas(256, 180);
   const styles = {
-    recruit: ['#6cc4ff', '#1d67e0', '#0a2f78'],
-    big: ['#fff08a', '#f2a90f', '#7a4800'],
-    boost: ['#8dff9a', '#1faa4a', '#0b5a24'],
-  }[kind];
+    recruit: ['#5ee6ee', '#127da0', '#063c56'],
+    big: ['#ffe7a3', '#ce8b23', '#6b390b'],
+    boost: ['#b5efb1', '#3c946c', '#144835'],
+  }[kind] || ['#ffe7a3', '#ce8b23', '#6b390b'];
   const grd = g.createLinearGradient(0, 0, 0, 180);
   grd.addColorStop(0, styles[0]);
   grd.addColorStop(1, styles[1]);
   g.fillStyle = grd;
   g.fillRect(0, 0, 256, 180);
-  g.fillStyle = 'rgba(255,255,255,0.28)';
-  g.beginPath(); g.ellipse(128, 20, 140, 45, 0, 0, 7); g.fill();
+  // Inset enamel frame and corner rivets give the upgrade tiles a crafted finish.
+  g.strokeStyle = 'rgba(255,242,204,0.8)';
+  g.lineWidth = 4; g.strokeRect(8, 8, 240, 164);
+  g.strokeStyle = 'rgba(9,30,37,0.28)';
+  g.lineWidth = 2; g.strokeRect(15, 15, 226, 150);
+  for (const x of [20, 236]) for (const y of [20, 160]) {
+    g.fillStyle = '#ffe7b4'; g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = 'rgba(255,255,255,0.14)';
+  g.beginPath(); g.moveTo(12, 12); g.lineTo(244, 12); g.lineTo(12, 130); g.fill();
   g.font = `900 ${label.length > 4 ? 52 : 92}px system-ui, -apple-system, "Segoe UI", sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';

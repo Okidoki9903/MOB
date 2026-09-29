@@ -7,6 +7,7 @@ export class Sound {
     this.last = {};
     this.musicOn = false;
     this.step = 0;
+    this.intensity = 0;
     this.nextTime = 0;
     try { this.muted = localStorage.getItem('pl_muted') === '1'; } catch (e) { /* ignore */ }
   }
@@ -18,7 +19,14 @@ export class Sound {
       this.ctx = new AC();
       this.master = this.ctx.createGain();
       this.master.gain.value = this.muted ? 0 : 0.8;
-      this.master.connect(this.ctx.destination);
+      // A gentle limiter keeps crowded fights comfortable on phone speakers.
+      this.limiter = this.ctx.createDynamicsCompressor();
+      this.limiter.threshold.value = -16;
+      this.limiter.knee.value = 18;
+      this.limiter.ratio.value = 5;
+      this.limiter.attack.value = 0.006;
+      this.limiter.release.value = 0.18;
+      this.master.connect(this.limiter).connect(this.ctx.destination);
       this.sfxBus = this.ctx.createGain();
       this.sfxBus.gain.value = 0.9;
       this.sfxBus.connect(this.master);
@@ -30,7 +38,7 @@ export class Sound {
       const d = this.noise.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
   }
 
   setMuted(m) {
@@ -43,7 +51,7 @@ export class Sound {
   gate(id, perSec) {
     if (!this.ctx || this.muted) return false;
     const t = this.ctx.currentTime;
-    if (this.last[id] && t - this.last[id] < 1 / perSec) return false;
+    if (this.last[id] !== undefined && t - this.last[id] < 1 / perSec) return false;
     this.last[id] = t;
     return true;
   }
@@ -61,6 +69,7 @@ export class Sound {
     o.connect(g).connect(bus);
     o.start(t);
     o.stop(t + dur + 0.02);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
   }
 
   noiseHit(dur, freq, q = 1, vol = 0.3, type = 'bandpass', when = 0, bus = this.sfxBus) {
@@ -77,6 +86,7 @@ export class Sound {
     s.connect(f).connect(g).connect(bus);
     s.start(t, Math.random() * 0.5);
     s.stop(t + dur + 0.02);
+    s.onended = () => { s.disconnect(); f.disconnect(); g.disconnect(); };
   }
 
   shoot() {
@@ -99,7 +109,10 @@ export class Sound {
   }
   collect(n = 0) {
     if (!this.gate('collect', 20)) return;
-    this.tone(660 * Math.pow(1.06, n % 12), 0.12, 'sine', 0.18, 1.5);
+    const degrees = [0, 2, 4, 7, 9, 12];
+    const f = 660 * Math.pow(2, degrees[Math.abs(Math.floor(n)) % degrees.length] / 12);
+    this.tone(f, 0.14, 'sine', 0.13, 1);
+    this.tone(f * 2, 0.07, 'sine', 0.035, 1, 0.015);
   }
   big() {
     if (!this.ctx || this.muted) return;
@@ -146,14 +159,42 @@ export class Sound {
     this.tone(880, 0.06, 'sine', 0.15, 1.3);
   }
 
+  setIntensity(value = 0) {
+    this.intensity = Math.max(0, Math.min(1, Number(value) || 0));
+  }
+  boss() {
+    if (!this.gate('boss', 0.5)) return;
+    [98, 103.83, 98].forEach((f, i) => this.tone(f, 0.65, 'triangle', 0.2, 0.8, i * 0.22));
+    this.noiseHit(0.65, 460, 0.7, 0.18, 'lowpass');
+  }
+  combo(n = 1) {
+    if (!this.gate('combo', 4)) return;
+    const f = 392 * Math.pow(2, Math.min(12, Math.max(0, n)) / 12);
+    [1, 1.5, 2].forEach((ratio, i) => this.tone(f * ratio, 0.19, 'sine', 0.1, 1, i * 0.045));
+  }
+  shield() {
+    if (!this.gate('shield', 4)) return;
+    this.tone(740, 0.3, 'sine', 0.13, 1.5);
+    this.tone(1110, 0.35, 'sine', 0.07, 1.2, 0.04);
+  }
+  dash() {
+    if (!this.gate('dash', 3)) return;
+    this.noiseHit(0.18, 1800, 0.5, 0.12, 'bandpass');
+    this.tone(260, 0.14, 'triangle', 0.08, 2.8);
+  }
+
   // ------------------------------------------------ music (djembe + balafon)
   startMusic() {
     if (!this.ctx || this.musicOn) return;
     this.musicOn = true;
+    this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
+    this.musicBus.gain.setTargetAtTime(0.42, this.ctx.currentTime, 0.12);
     this.nextTime = this.ctx.currentTime + 0.1;
     this.step = 0;
     const tick = () => {
       if (!this.musicOn) return;
+      // Resume from a background tab without walking through minutes of missed beats.
+      if (this.nextTime < this.ctx.currentTime - 0.3) this.nextTime = this.ctx.currentTime + 0.03;
       while (this.nextTime < this.ctx.currentTime + 0.25) {
         this.playStep(this.step, this.nextTime - this.ctx.currentTime);
         this.nextTime += 60 / 118 / 3; // 12/8 feel: triplet subdivisions
@@ -166,6 +207,7 @@ export class Sound {
   stopMusic() {
     this.musicOn = false;
     clearTimeout(this.musicTimer);
+    if (this.musicBus) this.musicBus.gain.setTargetAtTime(0, this.ctx.currentTime, 0.09);
   }
   playStep(s, when) {
     if (when < 0) return;
@@ -178,6 +220,9 @@ export class Sound {
     if ([4, 10].includes(b)) this.noiseHit(0.08, 2200, 1.2, 0.2, 'bandpass', when, mb);
     // shaker
     if (b % 2 === 1) this.noiseHit(0.03, 8000, 0.8, 0.05, 'highpass', when, mb);
+    // Extra low percussion opens up as the wave grows, without changing tempo.
+    if (this.intensity > 0.35 && [2, 8].includes(b)) this.tone(125, 0.13, 'sine', 0.16 * this.intensity, 0.65, when, mb);
+    if (this.intensity > 0.7 && b === 11) this.noiseHit(0.07, 3400, 0.8, 0.09, 'bandpass', when, mb);
     // balafon melody (pentatonic)
     const mel = [0, -1, 2, -1, 4, 2, -1, 7, -1, 4, 2, -1, 9, -1, 7, 4, -1, 2, 4, -1, 2, 0, -1, -1,
       0, -1, 2, -1, 4, 7, -1, 9, -1, 7, 4, -1, 2, -1, 4, 2, -1, 0, -1, 2, -1, 0, -1, -1];
