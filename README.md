@@ -67,3 +67,10 @@ npm test
 ```
 
 Les tests couvrent la portée et la recharge de la capacité, son blocage hors combat, l’attribution unique des récompenses du boss, les combos, l’arrêt de simulation en fin de partie et les sauvegardes invalides. Pour vérifier le rendu WebGL et les commandes, lancer le serveur local puis jouer une partie ; les tests de règles ne remplacent pas les essais sur téléphone.
+
+
+### Animation de tir et hordes renforcées
+
+Chaque personnage arme réellement son lance-pierre : le bras tire la poche et les deux branches de l’élastique, puis la main poursuit son mouvement au relâchement. Le cycle est synchronisé avec les tirs et fonctionne sur les cinq armes.
+
+Toutes les vagues contiennent désormais **5 fois plus d’ennemis** : le niveau 1 passe de 267 à 1 335 ennemis, plus le boss. Des renforts en file attendent une place dans les groupes actifs ; aucun ennemi prévu n’est abandonné lorsque la limite est atteinte. La victoire attend également la fin des renforts.

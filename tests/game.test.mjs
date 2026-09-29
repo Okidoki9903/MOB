@@ -99,3 +99,23 @@ test('invalid campaign inputs and damaged saves remain bounded', () => {
     else delete globalThis.localStorage;
   }
 });
+
+test('every campaign wave contains exactly five times its original enemy count', () => {
+  for (const L of [1, 3, 10]) {
+    assert.deepEqual(makeLevel(L).waves.map(w => w.n), [18 + 6*L, 30 + 10*L, 45 + 14*L, 60 + 18*L, 50 + 16*L].map(n => n*5));
+  }
+});
+test('reinforcements preserve enemies when the active pool is full and resume when space opens', () => {
+  const g = combat();
+  g.reinforcements = [{ wave: { hp: 1, mix: { imp: 1 } }, remaining: 12 }];
+  g.spawnClock = 0;
+  g.enemies = Array.from({ length: 520 }, () => ({ type: 'imp' }));
+  g.updateReinforcements(1);
+  assert.equal(g.enemies.length, 520);
+  assert.equal(g.reinforcements[0].remaining, 12);
+  g.enemies.splice(0, 12);
+  g.updateReinforcements(1); g.updateReinforcements(1);
+  assert.equal(g.enemies.length, 520);
+  assert.equal(g.reinforcements.length, 0);
+  assert.ok(g.enemies.slice(-12).every(e => e.hp > 0 && Number.isFinite(e.z)));
+});

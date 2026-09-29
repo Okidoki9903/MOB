@@ -1,5 +1,5 @@
 // Cache a complete, versioned game so a first online visit enables offline play.
-const CACHE = 'plp-v2';
+const CACHE = 'plp-v3';
 const ASSETS = [
   './', './index.html', './styles.css', './icon.svg', './manifest.webmanifest',
   './src/main.js', './src/game.js', './src/models.js', './src/audio.js',

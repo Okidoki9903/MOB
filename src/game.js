@@ -30,6 +30,8 @@ export const WEAPONS = [
 ];
 
 // Monster families. hp is a multiplier of the wave's base hp.
+export const HORDE_MULTIPLIER = 5;
+
 export const ETYPES = {
   imp: { name: 'Fétiche', hp: 1, speed: 2.6, power: 1, r: 0.34, scale: 1.15, coin: 1, max: 520, freq: 9, anim: { amp: 0.7, bob: 0.06 } },
   hyena: { name: 'Hyène', hp: 0.55, speed: 4.3, power: 1, r: 0.38, scale: 1.1, coin: 1, max: 320, freq: 15, anim: { amp: 0.75, bob: 0.05 } },
@@ -86,7 +88,7 @@ export function makeLevel(L) {
     { t: 29, n: 45 + 14 * L, hp: 6 * e },
     { t: 43, n: 60 + 18 * L, hp: 10 * e },
     { t: 58, n: 50 + 16 * L, hp: 14 * e, boss: Math.round(5000 * Math.pow(1.28, n)) },
-  ].map((w, i) => ({ ...w, mix: waveMix(L, i) }));
+  ].map((w, i) => ({ ...w, n: w.n * HORDE_MULTIPLIER, mix: waveMix(L, i) }));
   return { left, right, waves, L, boss: BOSSES[n % BOSSES.length] };
 }
 
@@ -360,19 +362,23 @@ export class Game {
   }
 
   initActors() {
-    const kidAnim = { amp: 0.75, bob: 0.05 };
+    const kidAnim = { amp: 0.75, bob: 0.05, shoot: true };
     const kcap = MAX_KIDS + MAX_DYING_KIDS;
     this.kidMesh = this.animatedMesh(M.kidGeometry(), kcap, kidAnim, false);
     for (let i = 0; i < kcap; i++) {
       const v = 0.88 + Math.random() * 0.24;
       this.kidMesh.setColorAt(i, tmpC.setRGB(v, v * 0.97, v * 0.95));
     }
+    const shot = new THREE.InstancedBufferAttribute(new Float32Array(kcap * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    this.kidMesh.geometry.setAttribute('iShot', shot);
+    this.kidMesh.userData.shot = shot;
     // slingshots share the kids' phase so they bob together
     const { phase, amt } = this.kidMesh.userData;
     this.slingGeos = WEAPONS.map((_, i) => {
       const g = M.slingshotGeometry(i);
       g.setAttribute('iPhase', phase);
       g.setAttribute('iAnim', amt);
+      g.setAttribute('iShot', shot);
       return g;
     });
     const smat = M.animate(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.15 }), kidAnim);
@@ -541,6 +547,8 @@ export class Game {
     this.syncKids(true);
     this.slingMesh.geometry = this.slingGeos[0];
     this.enemies = [];
+    this.reinforcements = [];
+    this.spawnClock = 0;
     this.dying = [];
     this.boss = null;
     this.bossDefeated = false;
@@ -775,7 +783,7 @@ export class Game {
       this.kids.push({
         x: jump ? spawnX : this.army.x + sx, z: jump ? spawnZ : ARMY_Z + sz,
         y: jump ? 0.8 : 0, vx: 0, vz: 0, vy: jump ? 4.5 + Math.random() * 2 : 0,
-        s: instant ? 1 : 0.3, cd: Math.random() * 0.8, phase: Math.random() * 6.28, recoil: 0, lean: 0,
+        s: instant ? 1 : 0.3, cd: Math.random() * 0.8, phase: Math.random() * 6.28, recoil: 0, draw: 0, lean: 0,
       });
     }
     while (this.kids.length > want) this.killKid(this.kids.pop());
@@ -905,11 +913,12 @@ export class Game {
       this.spawnWave(lv.waves[this.waveIdx]);
       this.waveIdx++;
     }
-    if (this.waveIdx < lv.waves.length && this.enemies.length === 0 && !this.boss) {
+    if (this.waveIdx < lv.waves.length && this.enemies.length === 0 && this.reinforcements.length === 0 && !this.boss) {
       const next = lv.waves[this.waveIdx].t;
       if (next - this.time > 3) this.time = next - 3;
     }
 
+    this.updateReinforcements(dt);
     this.updateKids(dt);
     this.updateProjectiles(dt);
     for (const lane of this.lanes) this.updateLane(lane, dt);
@@ -917,7 +926,7 @@ export class Game {
     this.updateGuardian(dt);
     this.updateRocks(dt);
 
-    if (!this.ended && this.waveIdx >= lv.waves.length && this.enemies.length === 0 && this.bossDefeated) this.win();
+    if (!this.ended && this.waveIdx >= lv.waves.length && this.enemies.length === 0 && this.reinforcements.length === 0 && this.bossDefeated) this.win();
     this.updateHud();
   }
 
@@ -949,16 +958,18 @@ export class Game {
       k.lean = lerp(k.lean, clamp(-k.vx * 0.05, -0.35, 0.35), Math.min(1, dt * 10));
       k.recoil = Math.max(0, k.recoil - dt * 6);
       k.cd -= dt;
+      k.draw = k.recoil > 0.72 ? (k.recoil - 0.72) / 0.28 : clamp(1 - k.cd / Math.min(0.24, interval * 0.65), 0, 1);
       if (k.cd <= 0) {
         k.cd += interval * (0.85 + Math.random() * 0.3);
         k.recoil = 1;
+        k.draw = 1;
         let dx = (Math.random() - 0.5) * 0.05, dz = -1;
         if (aim) {
           const ax = aim.x - k.x, az = aim.z - k.z;
           const l = Math.hypot(ax, az) || 1;
           dx = ax / l; dz = az / l;
         }
-        this.fire(k.x + 0.22, 1.35 + k.y, k.z - 0.4, dx, dz, dmg, W);
+        this.fire(k.x + 0.17 * KID_SCALE, 1.065 * KID_SCALE + k.y, k.z - 0.24 * KID_SCALE, dx, dz, dmg, W);
         fired++;
       }
     }
@@ -1219,26 +1230,10 @@ export class Game {
   }
 
   spawnWave(w) {
-    const per = 6;
-    const counts = {};
-    for (let i = 0; i < w.n; i++) {
-      const type = pick(w.mix);
-      const T = ETYPES[type];
-      counts[type] = (counts[type] || 0) + 1;
-      if (this.enemies.filter((e) => e.type === type).length >= T.max) continue;
-      const row = Math.floor(i / per), col = i % per;
-      this.enemies.push({
-        type, fly: !!T.fly, r: T.r, mass: T.hp > 2 ? 3 : 1, power: T.power, scale: T.scale,
-        x: (col - (per - 1) / 2) * 0.5 + (Math.random() - 0.5) * 0.2,
-        z: SPAWN_Z - row * 0.62 - (w.boss ? 5 : 0) - Math.random() * 0.3,
-        y: T.fly ? 2.4 : 0,
-        hp: w.hp * T.hp, flash: 0, kb: 0, vx: 0, vz: 0,
-        phase: Math.random() * 6.28, speed: T.speed * (0.92 + Math.random() * 0.16),
-        ox: (Math.random() - 0.5), oz: (Math.random() - 0.5),
-      });
-    }
-    if (counts.hyena && this.waveIdx > 0) this.sound.laugh();
-    if (counts.brute) setTimeout(() => this.sound.roar(), 400);
+    // Reserve every requested enemy; bounded active pools never discard recruits.
+    this.reinforcements.push({ wave: w, remaining: w.n });
+    if (w.mix.hyena && this.waveIdx > 0) this.sound.laugh();
+    if (w.mix.brute) this.sound.roar();
     if (w.boss) {
       const B = this.bossDef;
       const bi = BOSSES.indexOf(B);
@@ -1253,6 +1248,31 @@ export class Game {
     } else if (this.waveIdx === 0) {
       this.ui.banner('La horde arrive !', 'Vise le couloir du milieu');
     }
+  }
+
+  updateReinforcements(dt) {
+    if (!this.reinforcements.length) { this.spawnClock = 0; return; }
+    this.spawnClock -= dt;
+    if (this.spawnClock > 0) return;
+    this.spawnClock = 0.16;
+    const counts = {};
+    for (const e of this.enemies) counts[e.type] = (counts[e.type] || 0) + 1;
+    const batch = this.reinforcements[0], w = batch.wave;
+    for (let col = 0; col < 6 && batch.remaining > 0; col++) {
+      const type = pick(w.mix), T = ETYPES[type];
+      if ((counts[type] || 0) >= T.max) break;
+      counts[type] = (counts[type] || 0) + 1;
+      this.enemies.push({
+        type, fly: !!T.fly, r: T.r, mass: T.hp > 2 ? 3 : 1, power: T.power, scale: T.scale,
+        x: (col - 2.5) * 0.5 + (Math.random() - 0.5) * 0.2,
+        z: SPAWN_Z - Math.random() * 0.3,
+        y: T.fly ? 2.4 : 0, hp: w.hp * T.hp, flash: 0, kb: 0, vx: 0, vz: 0,
+        phase: Math.random() * 6.28, speed: T.speed * (0.92 + Math.random() * 0.16),
+        ox: Math.random() - 0.5, oz: Math.random() - 0.5,
+      });
+      batch.remaining--;
+    }
+    if (!batch.remaining) this.reinforcements.shift();
   }
 
   updateEnemies(dt) {
@@ -1459,7 +1479,7 @@ export class Game {
 
   renderKids() {
     const km = this.kidMesh, sm = this.slingMesh;
-    const { phase, amt } = km.userData;
+    const { phase, amt, shot } = km.userData;
     let n = 0;
     for (const k of this.kids) {
       const sc = k.s * KID_SCALE;
@@ -1467,6 +1487,8 @@ export class Game {
       setInst(sm, n, k.x, k.y, k.z + k.recoil * 0.06, -k.recoil * 0.12, 0, k.lean, sc);
       phase.array[n] = k.phase;
       amt.array[n] = k.y > 0 ? 1 : k.anim;
+      shot.array[n * 2] = k.draw || 0;
+      shot.array[n * 2 + 1] = k.recoil * (1 - (k.draw || 0));
       n++;
     }
     sm.count = n;
@@ -1474,11 +1496,12 @@ export class Game {
       const sc = KID_SCALE * (d.t > 0.8 ? Math.max(0.01, 1 - (d.t - 0.8) / 0.3) : 1);
       setInst(km, n, d.x, d.y, d.z, d.rx, 0, d.rz, sc);
       phase.array[n] = d.phase; amt.array[n] = 1;
+      shot.array[n * 2] = shot.array[n * 2 + 1] = 0;
       n++;
     }
     km.count = n;
     km.instanceMatrix.needsUpdate = sm.instanceMatrix.needsUpdate = true;
-    phase.needsUpdate = amt.needsUpdate = true;
+    phase.needsUpdate = amt.needsUpdate = shot.needsUpdate = true;
   }
 
   renderEnemies() {

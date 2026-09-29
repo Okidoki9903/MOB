@@ -99,16 +99,17 @@ export function RoundedBox(w, h, d, r = 0.08, seg = 3) {
 // ------------------------------------------------------------ builder
 export class Builder {
   constructor() { this.parts = []; }
-  // o: { limb:[x,z] swing weights, pivot:[x,y,z] }
+  // o: limb/pivot for gait; draw/release map a built vertex into its shooting pose.
   add(geo, color, p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1], o = {}) {
     const sc = typeof s === 'number' ? [s, s, s] : s;
     _m.compose(V3(p[0], p[1], p[2]), _q.setFromEuler(_e.set(r[0], r[1], r[2])), V3(sc[0], sc[1], sc[2]));
-    this.parts.push({ geo, color: new THREE.Color(color), m: _m.clone(), limb: o.limb || [0, 0], pivot: o.pivot || [0, 0, 0] });
+    this.parts.push({ geo, color: new THREE.Color(color), m: _m.clone(), limb: o.limb || [0, 0], pivot: o.pivot || [0, 0, 0], draw: o.draw, release: o.release });
     return this;
   }
   build() {
-    const pos = [], nor = [], col = [], limb = [], piv = [];
-    for (const { geo, color, m, limb: L, pivot: P } of this.parts) {
+    const pos = [], nor = [], col = [], limb = [], piv = [], draw = [], release = [];
+    const shooting = this.parts.some((part) => part.draw || part.release);
+    for (const { geo, color, m, limb: L, pivot: P, draw: D, release: R } of this.parts) {
       const g = geo.index ? geo.toNonIndexed() : geo.clone();
       g.applyMatrix4(m);
       const pa = g.attributes.position.array;
@@ -123,6 +124,17 @@ export class Builder {
         col.push(color.r * shade, color.g * shade, color.b * shade);
         limb.push(L[0], L[1]);
         piv.push(P[0], P[1], P[2]);
+        if (shooting) {
+          if (D || R) {
+            const point = V3(pa[j], pa[j + 1], pa[j + 2]);
+            const dp = D ? D(point.clone()) : point;
+            const rp = R ? R(point.clone()) : point;
+            draw.push(dp.x - point.x, dp.y - point.y, dp.z - point.z);
+            release.push(rp.x - point.x, rp.y - point.y, rp.z - point.z);
+          } else {
+            draw.push(0, 0, 0); release.push(0, 0, 0);
+          }
+        }
       }
       g.dispose();
     }
@@ -132,6 +144,10 @@ export class Builder {
     out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     out.setAttribute('aLimb', new THREE.Float32BufferAttribute(limb, 2));
     out.setAttribute('aPivot', new THREE.Float32BufferAttribute(piv, 3));
+    if (shooting) {
+      out.setAttribute('aDraw', new THREE.Float32BufferAttribute(draw, 3));
+      out.setAttribute('aRelease', new THREE.Float32BufferAttribute(release, 3));
+    }
     out.computeBoundingSphere();
     return out;
   }
@@ -139,13 +155,15 @@ export class Builder {
 
 // ------------------------------------------------------------ animated material
 // Instances carry iPhase (walk cycle) and iAnim (0 idle .. 1 full stride).
-export function animate(material, { amp = 0.6, bob = 0.05, flap = 0 } = {}) {
+// shoot:true also consumes iShot.xy = draw/release (nonnegative, sum <= 1), shared by body and sling.
+export function animate(material, { amp = 0.6, bob = 0.05, flap = 0, shoot = false } = {}) {
   material.onBeforeCompile = (sh) => {
     sh.uniforms.uAmp = { value: amp };
     sh.uniforms.uBob = { value: bob };
     sh.uniforms.uFlap = { value: flap };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
+        ${shoot ? 'attribute vec3 aDraw; attribute vec3 aRelease; attribute vec2 iShot;' : ''}
         attribute vec2 aLimb; attribute vec3 aPivot;
         attribute float iPhase; attribute float iAnim;
         uniform float uAmp; uniform float uBob; uniform float uFlap;
@@ -161,10 +179,11 @@ export function animate(material, { amp = 0.6, bob = 0.05, flap = 0 } = {}) {
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
         objectNormal = limbMat() * objectNormal;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${shoot ? 'transformed += aDraw * clamp(iShot.x, 0.0, 1.0) + aRelease * clamp(iShot.y, 0.0, 1.0);' : ''}
         transformed = limbMat() * (transformed - aPivot) + aPivot;
         transformed.y += abs(sin(iPhase)) * uBob * iAnim;`);
   };
-  material.customProgramCacheKey = () => `anim-${amp}-${bob}-${flap}`;
+  material.customProgramCacheKey = () => `anim-${amp}-${bob}-${flap}-${shoot}`;
   return material;
 }
 
@@ -225,9 +244,39 @@ export function kidGeometry() {
   }
   b.add(Sph(0.034, 10, 8), skinDark, [0, 0.815, -0.205], [0, 0, 0], [1.2, 0.85, 1]);
   b.add(new THREE.TorusGeometry(0.045, 0.011, 6, 12, Math.PI), 0x5a1a10, [0, 0.77, -0.19], [0, 0, Math.PI]);
-  // arms: left swings, right is raised holding the slingshot
-  b.add(Cap(0.042, 0.2, 8), skin, [-0.19, 0.5, 0], [0, 0, 0.18], 1, { limb: [-0.8, 0], pivot: [0, 0.6, 0] });
-  b.add(Sph(0.045, 8, 6), skin, [-0.21, 0.38, 0], [0, 0, 0], 1, { limb: [-0.8, 0], pivot: [0, 0.6, 0] });
+  // Three anatomical poses, baked once; each instance blends its own shot cycle.
+  // The draw hand actually meets the leather pouch then pulls it towards the cheek.
+  const shoulder = V3(-0.16, 0.61, 0);
+  const elbows = [V3(-0.24, 0.83, -0.12), V3(-0.26, 0.85, 0.2), V3(-0.3, 0.84, 0.25)];
+  const hands = [V3(0.17, 1.065, -0.19), V3(0.17, 1.065, 0.15), V3(0.07, 1.04, 0.25)];
+  function segment(a, end, loadedA, loadedEnd, releasedA, releasedEnd) {
+    const center = a.clone().add(end).multiplyScalar(0.5);
+    const axis = end.clone().sub(a);
+    const rotation = new THREE.Quaternion().setFromUnitVectors(V3(0, 1, 0), axis.clone().normalize());
+    const euler = new THREE.Euler().setFromQuaternion(rotation);
+    const toPose = (targetA, targetEnd) => {
+      const targetAxis = targetEnd.clone().sub(targetA);
+      const q = new THREE.Quaternion().setFromUnitVectors(axis.clone().normalize(), targetAxis.clone().normalize());
+      const stretch = targetAxis.length() / axis.length();
+      const unit = axis.clone().normalize();
+      return (point) => {
+        const offset = point.sub(center);
+        offset.addScaledVector(unit, offset.dot(unit) * (stretch - 1));
+        return offset.applyQuaternion(q).add(targetA.clone().add(targetEnd).multiplyScalar(0.5));
+      };
+    };
+    b.add(Cap(0.039, Math.max(0.01, axis.length() - 0.078), 8), skin, center.toArray(), [euler.x, euler.y, euler.z], 1,
+      { draw: toPose(loadedA, loadedEnd), release: toPose(releasedA, releasedEnd) });
+  }
+  segment(shoulder, elbows[0], shoulder, elbows[1], shoulder, elbows[2]);
+  segment(elbows[0], hands[0], elbows[1], hands[1], elbows[2], hands[2]);
+  for (const [poses, radius] of [[elbows, 0.042], [hands, 0.048]]) {
+    b.add(Sph(radius, 8, 6), skin, poses[0].toArray(), [0, 0, 0], 1, {
+      draw: (v) => v.add(poses[1].clone().sub(poses[0])),
+      release: (v) => v.add(poses[2].clone().sub(poses[0])),
+    });
+  }
+  // Right hand braces the fork; the left hand is free to pull and release.
   b.add(Cap(0.042, 0.28, 8), skin, [0.17, 0.76, -0.11], [-0.67, 0, 0]);
   b.add(Sph(0.048, 8, 6), skin, [0.17, 0.9, -0.22]);
   return b.build();
@@ -241,12 +290,25 @@ export function slingshotGeometry(tier) {
   const band = [0xc23b2a, 0x2a2a2a, 0xd8261c, 0xffe14d, 0x5cf6ff][tier];
   const s = [1, 1.1, 1.2, 1.3, 1.45][tier];
   const x = 0.17, y = 0.86, z = -0.24;
-  const P = (dx, dy, dz = 0) => [x + dx * s, y + dy * s, z + dz * s];
+  const P = (dx, dy, dz = 0) => [x + dx * s, y + dy, z + dz];
   b.add(Tube([P(0, -0.02), P(0, 0.12)], 0.022 * s, 4, 8), wood);
   b.add(Tube([P(0, 0.11), P(-0.045, 0.17), P(-0.06, 0.25)], 0.019 * s, 8, 8), wood);
   b.add(Tube([P(0, 0.11), P(0.045, 0.17), P(0.06, 0.25)], 0.019 * s, 8, 8), wood);
-  b.add(Tube([P(-0.06, 0.245), P(0, 0.2, 0.05), P(0.06, 0.245)], 0.008 * s, 10, 5), band);
-  b.add(Sph(0.02 * s, 8, 6), 0x3a2a1a, P(0, 0.205, 0.05));
+  // Two straight elastic branches: fork endpoints stay fixed while the pouch moves.
+  const pouch = P(0, 0.205, 0.05);
+  for (const side of [-1, 1]) {
+    const fork = P(side * 0.06, 0.245);
+    const direction = V3(...pouch).sub(V3(...fork));
+    const lengthSq = direction.lengthSq();
+    const weight = (v) => THREE.MathUtils.clamp(v.clone().sub(V3(...fork)).dot(direction) / lengthSq, 0, 1);
+    b.add(Tube([fork, pouch], 0.008 * s, 8, 5), band, [0, 0, 0], [0, 0, 0], 1, {
+      draw: (v) => { const w = weight(v); return v.add(V3(0, 0, 0.34 * w)); },
+      release: (v) => { const w = weight(v); return v.add(V3(0, 0, -0.05 * w)); },
+    });
+  }
+  b.add(Sph(0.025 * s, 8, 6), 0x3a2a1a, pouch, [0, 0, 0], [1.1, 0.75, 0.7], {
+    draw: (v) => v.add(V3(0, 0, 0.34)), release: (v) => v.add(V3(0, 0, -0.05)),
+  });
   if (tier >= 1) {
     b.add(Cyl(0.03 * s, 0.03 * s, 0.03 * s, 10), tier === 1 ? 0xc8ccd6 : 0xffffff, P(0, 0.03));
     b.add(Cyl(0.03 * s, 0.03 * s, 0.02 * s, 10), tier === 1 ? 0xc8ccd6 : 0xffffff, P(0, 0.09));
