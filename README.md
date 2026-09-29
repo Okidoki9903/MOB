@@ -49,3 +49,28 @@ python3 -m http.server 8000
 Dans le dépôt : **Settings → Pages → Build and deployment → Source : "Deploy from a branch"**.
 Choisis la branche et le dossier `/ (root)`, puis enregistre. Le jeu sera en ligne à l'adresse
 `https://<ton-pseudo>.github.io/MOB/`.
+
+## Édition « Les Gardiens de la Savane »
+
+- Interface ivoire, or et nuit : menu d’expédition, atelier, aide, HUD de combat et bilan de partie.
+- **Onde des ancêtres** : bouton tactile ou **Espace**. Repousse et blesse les ennemis proches (rayon 12), puis augmente la cadence de 60 % pendant 4 secondes. Recharge : 16 secondes.
+- **Combos** : enchaîne les éliminations à moins de 3,5 secondes d’intervalle ; subir une perte remet la série à zéro. Le bilan affiche les éliminations, la meilleure série, et la durée.
+- Tuiles émaillées, détails des huttes et nuances des modèles ; musique qui suit l’intensité du combat, effets de boss et limiteur sonore.
+- Les sauvegardes existantes sont conservées et les valeurs invalides sont corrigées à la lecture. Le cache hors ligne précharge les fichiers du jeu après une première visite connectée.
+
+### Vérifier les règles de jeu
+
+Avec Node.js 22.15+ (Node.js 24 recommandé), sans dépendances à installer :
+
+```bash
+npm test
+```
+
+Les tests couvrent la portée et la recharge de la capacité, son blocage hors combat, l’attribution unique des récompenses du boss, les combos, l’arrêt de simulation en fin de partie et les sauvegardes invalides. Pour vérifier le rendu WebGL et les commandes, lancer le serveur local puis jouer une partie ; les tests de règles ne remplacent pas les essais sur téléphone.
+
+
+### Animation de tir et hordes renforcées
+
+Chaque personnage arme réellement son lance-pierre : le bras tire la poche et les deux branches de l’élastique, puis la main poursuit son mouvement au relâchement. Le cycle est synchronisé avec les tirs et fonctionne sur les cinq armes.
+
+Toutes les vagues contiennent désormais **5 fois plus d’ennemis** : le niveau 1 passe de 267 à 1 335 ennemis, plus le boss. Des renforts en file attendent une place dans les groupes actifs ; aucun ennemi prévu n’est abandonné lorsque la limite est atteinte. La victoire attend également la fin des renforts.

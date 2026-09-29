@@ -4,8 +4,11 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 
 const screens = { menu: $('menu'), pause: $('pause'), end: $('end'), help: $('help') };
+let activeScreen = null;
 function show(name) {
+  activeScreen = name;
   for (const [k, el] of Object.entries(screens)) el.classList.toggle('hidden', k !== name);
+  if (name) requestAnimationFrame(() => screens[name].querySelector('button:not(:disabled)')?.focus({ preventScroll: true }));
 }
 
 let bannerTimer = 0;
@@ -31,8 +34,22 @@ const ui = {
     bannerTimer = setTimeout(() => b.classList.remove('show'), 1600);
   },
   tutorial(on) { $('tutorial').classList.toggle('hidden', !on); },
+  updateCombat(data) {
+    $('waveStat').textContent = `VAGUE ${Math.max(1, data.wave)} / ${data.waves}`;
+    $('killStat').textContent = data.kills;
+    $('comboStat').textContent = `Combo ×${data.combo}`;
+    $('abilityBtn').disabled = !data.abilityReady;
+    $('abilityBtn').classList.toggle('ready', data.abilityReady);
+    $('abilityLabel').textContent = data.abilityActive ? 'Onde active !' : data.abilityReady ? 'Onde des ancêtres' : `Recharge · ${Math.ceil(data.abilityCooldown)} s`;
+    $('abilityBtn').title = 'Onde des ancêtres · Espace : repousse les ennemis et accélère les tirs';
+  },
   onState(state, data = {}) {
     const playing = state === 'playing';
+    document.body.dataset.state = state;
+    $('controlHint').classList.toggle('hidden', !playing);
+    if (state === 'win' || state === 'lose') {
+      $('resultStats').innerHTML = `<div><b>${data.kills ?? 0}</b>ENNEMIS</div><div><b>×${data.bestCombo ?? 0}</b>MEILLEUR COMBO</div><div><b>${Math.round(data.duration ?? 0)}s</b>DURÉE</div>`;
+    }
     $('hud').classList.toggle('hidden', !(playing || state === 'paused'));
     $('labels').classList.toggle('hidden', !(playing || state === 'paused'));
     $('bubble').classList.toggle('hidden', !playing);
@@ -60,13 +77,15 @@ const game = new Game($('game'), ui, {
   speed: Number(params.get('speed')) || 1,
 });
 window.game = game;
-if (params.has('level')) { game.save.level = Math.max(1, Number(params.get('level')) | 0); game.prepareLevel(game.save.level); }
+if (params.has('level')) { game.save.level = Math.min(99, Math.max(1, Number(params.get('level')) | 0)); game.prepareLevel(game.save.level); }
 
-const ICONS = { recruits: '👦🏿', power: '💪🏿', rate: '⚡' };
+const ICONS = { recruits: '♟', power: '⌁', rate: 'ϟ' };
 function refreshMenu() {
   $('menuLevel').textContent = 'Niveau ' + game.save.level;
   $('shopCoins').textContent = game.save.coins;
-  $('muteBtn').textContent = game.sound.muted ? '🔇' : '🔊';
+  $('muteBtn').textContent = game.sound.muted ? '♪̸' : '♫';
+  $('muteBtn').setAttribute('aria-label', game.sound.muted ? 'Activer le son' : 'Couper le son');
+  $('muteBtn').setAttribute('aria-pressed', String(!game.sound.muted));
   const grid = $('shopGrid');
   grid.innerHTML = '';
   for (const key of Object.keys(UPGRADES)) {
@@ -79,6 +98,8 @@ function refreshMenu() {
     b.innerHTML = `<span class="u-ico">${ICONS[key]}</span><span class="u-name">${u.label}</span>` +
       `<span class="u-lvl">niv. ${lvl}</span><span class="u-desc">${u.desc}</span>` +
       `<span class="u-cost">${maxed ? 'MAX' : '<span class="coin-ico"></span>' + cost}</span>`;
+    b.disabled = maxed || game.save.coins < cost;
+    b.setAttribute('aria-label', `${u.label}, niveau ${lvl}. ${u.desc}. ${maxed ? 'Maximum atteint' : cost + ' pièces'}`);
     b.addEventListener('click', () => {
       game.sound.unlock();
       if (game.buyUpgrade(key)) refreshMenu();
@@ -88,6 +109,7 @@ function refreshMenu() {
   }
 }
 
+$('abilityBtn').addEventListener('click', () => game.activateAbility());
 $('playBtn').addEventListener('click', () => { show(null); game.start(); });
 $('pauseBtn').addEventListener('click', () => game.pause());
 $('resumeBtn').addEventListener('click', () => game.resume());
@@ -101,6 +123,18 @@ $('helpClose').addEventListener('click', () => show('menu'));
 ui.onState('menu');
 if (params.has('autostart')) { show(null); game.start(); }
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// Keep keyboard navigation inside the active overlay.
+window.addEventListener('keydown', (event) => {
+  if (!activeScreen) return;
+  if (event.key === 'Escape' && activeScreen === 'help') { show('menu'); return; }
+  if (event.key !== 'Tab') return;
+  const controls = [...screens[activeScreen].querySelectorAll('button:not(:disabled), a[href]')];
+  if (!controls.length) return;
+  const first = controls[0], last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});

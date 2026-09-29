@@ -99,25 +99,42 @@ export function RoundedBox(w, h, d, r = 0.08, seg = 3) {
 // ------------------------------------------------------------ builder
 export class Builder {
   constructor() { this.parts = []; }
-  // o: { limb:[x,z] swing weights, pivot:[x,y,z] }
+  // o: limb/pivot for gait; draw/release map a built vertex into its shooting pose.
   add(geo, color, p = [0, 0, 0], r = [0, 0, 0], s = [1, 1, 1], o = {}) {
     const sc = typeof s === 'number' ? [s, s, s] : s;
     _m.compose(V3(p[0], p[1], p[2]), _q.setFromEuler(_e.set(r[0], r[1], r[2])), V3(sc[0], sc[1], sc[2]));
-    this.parts.push({ geo, color: new THREE.Color(color), m: _m.clone(), limb: o.limb || [0, 0], pivot: o.pivot || [0, 0, 0] });
+    this.parts.push({ geo, color: new THREE.Color(color), m: _m.clone(), limb: o.limb || [0, 0], pivot: o.pivot || [0, 0, 0], draw: o.draw, release: o.release });
     return this;
   }
   build() {
-    const pos = [], nor = [], col = [], limb = [], piv = [];
-    for (const { geo, color, m, limb: L, pivot: P } of this.parts) {
+    const pos = [], nor = [], col = [], limb = [], piv = [], draw = [], release = [];
+    const shooting = this.parts.some((part) => part.draw || part.release);
+    for (const { geo, color, m, limb: L, pivot: P, draw: D, release: R } of this.parts) {
       const g = geo.index ? geo.toNonIndexed() : geo.clone();
       g.applyMatrix4(m);
       const pa = g.attributes.position.array;
       const na = g.attributes.normal.array;
       for (let i = 0; i < pa.length; i++) { pos.push(pa[i]); nor.push(na[i]); }
       for (let i = 0; i < pa.length / 3; i++) {
-        col.push(color.r, color.g, color.b);
+        // Baked soft cavity / sun-facing variation adds material depth for free
+        // at runtime. Smooth world-space variation avoids noisy triangle edges.
+        const j = i * 3;
+        const grain = Math.sin(pa[j] * 3.1 + pa[j + 2] * 2.7) * 0.018;
+        const shade = 0.93 + Math.max(-0.7, na[j + 1]) * 0.07 + grain;
+        col.push(color.r * shade, color.g * shade, color.b * shade);
         limb.push(L[0], L[1]);
         piv.push(P[0], P[1], P[2]);
+        if (shooting) {
+          if (D || R) {
+            const point = V3(pa[j], pa[j + 1], pa[j + 2]);
+            const dp = D ? D(point.clone()) : point;
+            const rp = R ? R(point.clone()) : point;
+            draw.push(dp.x - point.x, dp.y - point.y, dp.z - point.z);
+            release.push(rp.x - point.x, rp.y - point.y, rp.z - point.z);
+          } else {
+            draw.push(0, 0, 0); release.push(0, 0, 0);
+          }
+        }
       }
       g.dispose();
     }
@@ -127,6 +144,10 @@ export class Builder {
     out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     out.setAttribute('aLimb', new THREE.Float32BufferAttribute(limb, 2));
     out.setAttribute('aPivot', new THREE.Float32BufferAttribute(piv, 3));
+    if (shooting) {
+      out.setAttribute('aDraw', new THREE.Float32BufferAttribute(draw, 3));
+      out.setAttribute('aRelease', new THREE.Float32BufferAttribute(release, 3));
+    }
     out.computeBoundingSphere();
     return out;
   }
@@ -134,13 +155,15 @@ export class Builder {
 
 // ------------------------------------------------------------ animated material
 // Instances carry iPhase (walk cycle) and iAnim (0 idle .. 1 full stride).
-export function animate(material, { amp = 0.6, bob = 0.05, flap = 0 } = {}) {
+// shoot:true also consumes iShot.xy = draw/release (nonnegative, sum <= 1), shared by body and sling.
+export function animate(material, { amp = 0.6, bob = 0.05, flap = 0, shoot = false } = {}) {
   material.onBeforeCompile = (sh) => {
     sh.uniforms.uAmp = { value: amp };
     sh.uniforms.uBob = { value: bob };
     sh.uniforms.uFlap = { value: flap };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
+        ${shoot ? 'attribute vec3 aDraw; attribute vec3 aRelease; attribute vec2 iShot;' : ''}
         attribute vec2 aLimb; attribute vec3 aPivot;
         attribute float iPhase; attribute float iAnim;
         uniform float uAmp; uniform float uBob; uniform float uFlap;
@@ -156,10 +179,11 @@ export function animate(material, { amp = 0.6, bob = 0.05, flap = 0 } = {}) {
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
         objectNormal = limbMat() * objectNormal;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${shoot ? 'transformed += aDraw * clamp(iShot.x, 0.0, 1.0) + aRelease * clamp(iShot.y, 0.0, 1.0);' : ''}
         transformed = limbMat() * (transformed - aPivot) + aPivot;
         transformed.y += abs(sin(iPhase)) * uBob * iAnim;`);
   };
-  material.customProgramCacheKey = () => `anim-${amp}-${bob}-${flap}`;
+  material.customProgramCacheKey = () => `anim-${amp}-${bob}-${flap}-${shoot}`;
   return material;
 }
 
@@ -220,9 +244,39 @@ export function kidGeometry() {
   }
   b.add(Sph(0.034, 10, 8), skinDark, [0, 0.815, -0.205], [0, 0, 0], [1.2, 0.85, 1]);
   b.add(new THREE.TorusGeometry(0.045, 0.011, 6, 12, Math.PI), 0x5a1a10, [0, 0.77, -0.19], [0, 0, Math.PI]);
-  // arms: left swings, right is raised holding the slingshot
-  b.add(Cap(0.042, 0.2, 8), skin, [-0.19, 0.5, 0], [0, 0, 0.18], 1, { limb: [-0.8, 0], pivot: [0, 0.6, 0] });
-  b.add(Sph(0.045, 8, 6), skin, [-0.21, 0.38, 0], [0, 0, 0], 1, { limb: [-0.8, 0], pivot: [0, 0.6, 0] });
+  // Three anatomical poses, baked once; each instance blends its own shot cycle.
+  // The draw hand actually meets the leather pouch then pulls it towards the cheek.
+  const shoulder = V3(-0.16, 0.61, 0);
+  const elbows = [V3(-0.24, 0.83, -0.12), V3(-0.26, 0.85, 0.2), V3(-0.3, 0.84, 0.25)];
+  const hands = [V3(0.17, 1.065, -0.19), V3(0.17, 1.065, 0.15), V3(0.07, 1.04, 0.25)];
+  function segment(a, end, loadedA, loadedEnd, releasedA, releasedEnd) {
+    const center = a.clone().add(end).multiplyScalar(0.5);
+    const axis = end.clone().sub(a);
+    const rotation = new THREE.Quaternion().setFromUnitVectors(V3(0, 1, 0), axis.clone().normalize());
+    const euler = new THREE.Euler().setFromQuaternion(rotation);
+    const toPose = (targetA, targetEnd) => {
+      const targetAxis = targetEnd.clone().sub(targetA);
+      const q = new THREE.Quaternion().setFromUnitVectors(axis.clone().normalize(), targetAxis.clone().normalize());
+      const stretch = targetAxis.length() / axis.length();
+      const unit = axis.clone().normalize();
+      return (point) => {
+        const offset = point.sub(center);
+        offset.addScaledVector(unit, offset.dot(unit) * (stretch - 1));
+        return offset.applyQuaternion(q).add(targetA.clone().add(targetEnd).multiplyScalar(0.5));
+      };
+    };
+    b.add(Cap(0.039, Math.max(0.01, axis.length() - 0.078), 8), skin, center.toArray(), [euler.x, euler.y, euler.z], 1,
+      { draw: toPose(loadedA, loadedEnd), release: toPose(releasedA, releasedEnd) });
+  }
+  segment(shoulder, elbows[0], shoulder, elbows[1], shoulder, elbows[2]);
+  segment(elbows[0], hands[0], elbows[1], hands[1], elbows[2], hands[2]);
+  for (const [poses, radius] of [[elbows, 0.042], [hands, 0.048]]) {
+    b.add(Sph(radius, 8, 6), skin, poses[0].toArray(), [0, 0, 0], 1, {
+      draw: (v) => v.add(poses[1].clone().sub(poses[0])),
+      release: (v) => v.add(poses[2].clone().sub(poses[0])),
+    });
+  }
+  // Right hand braces the fork; the left hand is free to pull and release.
   b.add(Cap(0.042, 0.28, 8), skin, [0.17, 0.76, -0.11], [-0.67, 0, 0]);
   b.add(Sph(0.048, 8, 6), skin, [0.17, 0.9, -0.22]);
   return b.build();
@@ -231,16 +285,30 @@ export function kidGeometry() {
 // Slingshot held in the right hand. `tier` 0..4 changes look.
 export function slingshotGeometry(tier) {
   const b = new Builder();
+  tier = Math.max(0, Math.min(4, Math.floor(Number(tier) || 0)));
   const wood = [0x9a6532, 0x6b6f78, 0xffc53a, 0xff6a2a, 0xa35cff][tier];
   const band = [0xc23b2a, 0x2a2a2a, 0xd8261c, 0xffe14d, 0x5cf6ff][tier];
   const s = [1, 1.1, 1.2, 1.3, 1.45][tier];
   const x = 0.17, y = 0.86, z = -0.24;
-  const P = (dx, dy, dz = 0) => [x + dx * s, y + dy * s, z + dz * s];
+  const P = (dx, dy, dz = 0) => [x + dx * s, y + dy, z + dz];
   b.add(Tube([P(0, -0.02), P(0, 0.12)], 0.022 * s, 4, 8), wood);
   b.add(Tube([P(0, 0.11), P(-0.045, 0.17), P(-0.06, 0.25)], 0.019 * s, 8, 8), wood);
   b.add(Tube([P(0, 0.11), P(0.045, 0.17), P(0.06, 0.25)], 0.019 * s, 8, 8), wood);
-  b.add(Tube([P(-0.06, 0.245), P(0, 0.2, 0.05), P(0.06, 0.245)], 0.008 * s, 10, 5), band);
-  b.add(Sph(0.02 * s, 8, 6), 0x3a2a1a, P(0, 0.205, 0.05));
+  // Two straight elastic branches: fork endpoints stay fixed while the pouch moves.
+  const pouch = P(0, 0.205, 0.05);
+  for (const side of [-1, 1]) {
+    const fork = P(side * 0.06, 0.245);
+    const direction = V3(...pouch).sub(V3(...fork));
+    const lengthSq = direction.lengthSq();
+    const weight = (v) => THREE.MathUtils.clamp(v.clone().sub(V3(...fork)).dot(direction) / lengthSq, 0, 1);
+    b.add(Tube([fork, pouch], 0.008 * s, 8, 5), band, [0, 0, 0], [0, 0, 0], 1, {
+      draw: (v) => { const w = weight(v); return v.add(V3(0, 0, 0.34 * w)); },
+      release: (v) => { const w = weight(v); return v.add(V3(0, 0, -0.05 * w)); },
+    });
+  }
+  b.add(Sph(0.025 * s, 8, 6), 0x3a2a1a, pouch, [0, 0, 0], [1.1, 0.75, 0.7], {
+    draw: (v) => v.add(V3(0, 0, 0.34)), release: (v) => v.add(V3(0, 0, -0.05)),
+  });
   if (tier >= 1) {
     b.add(Cyl(0.03 * s, 0.03 * s, 0.03 * s, 10), tier === 1 ? 0xc8ccd6 : 0xffffff, P(0, 0.03));
     b.add(Cyl(0.03 * s, 0.03 * s, 0.02 * s, 10), tier === 1 ? 0xc8ccd6 : 0xffffff, P(0, 0.09));
@@ -481,7 +549,11 @@ function hut(b, r, x, z, s) {
   b.add(Lathe([[1.02, 0.35], [1.03, 0.45]], 20), 0x8f4a28, [x, 0, z], [0, 0, 0], s);
   b.add(Lathe([[1.55, 1.0], [1.35, 1.25], [0.9, 1.8], [0.35, 2.3], [0.08, 2.55], [0.001, 2.6]], 20), 0xd9b25f, [x, 0, z], [0, 0, 0], s);
   b.add(Lathe([[1.56, 0.98], [1.5, 1.08]], 20), 0xb88f3c, [x, 0, z], [0, 0, 0], s);
+  // Painted ochre bands and a tied roof cap remain part of the single draw call.
+  b.add(Lathe([[1.025, 0.72], [1.02, 0.79]], 20), 0xf0cf8c, [x, 0, z], [0, 0, 0], s);
+  b.add(Cyl(0.045, 0.06, 0.28, 6), 0x70503b, [x, 2.65 * s, z], [0, 0, 0], s);
   const dx = Math.sin(rot), dz = Math.cos(rot);
+  b.add(RoundedBox(0.65, 0.91, 0.15, 0.08), 0xe5b878, [x + dx * 0.94 * s, 0.455 * s, z + dz * 0.94 * s], [0, rot, 0], s);
   b.add(RoundedBox(0.5, 0.8, 0.2, 0.08), 0x3b2412, [x + dx * 0.95 * s, 0.4 * s, z + dz * 0.95 * s], [0, rot, 0], s);
 }
 function granary(b, r, x, z, s) {
@@ -682,10 +754,14 @@ export function skyMaterial() {
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 sun; varying vec3 vP;
       void main(){
-        float h = vP.y;
+        vec3 direction = normalize(vP);
+        float h = direction.y;
         vec3 c = h > 0.0 ? mix(mid, top, pow(clamp(h*1.6,0.0,1.0), 0.7)) : mix(mid, bot, clamp(-h*4.0,0.0,1.0));
-        float s = max(dot(normalize(vP), sun), 0.0);
+        float s = max(dot(direction, sun), 0.0);
         c += vec3(1.0,0.85,0.55) * (pow(s, 400.0) * 1.5 + pow(s, 12.0) * 0.35);
+        // Defined solar disc and a broad warm aerial haze.
+        c = mix(c, vec3(1.0, 0.94, 0.75), smoothstep(0.9993, 0.99965, s) * 0.9);
+        c += vec3(0.11, 0.045, 0.015) * exp(-abs(h - 0.035) * 18.0);
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
@@ -694,17 +770,25 @@ export function skyMaterial() {
 export function tileTexture(label, kind) {
   const [c, g] = canvas(256, 180);
   const styles = {
-    recruit: ['#6cc4ff', '#1d67e0', '#0a2f78'],
-    big: ['#fff08a', '#f2a90f', '#7a4800'],
-    boost: ['#8dff9a', '#1faa4a', '#0b5a24'],
-  }[kind];
+    recruit: ['#5ee6ee', '#127da0', '#063c56'],
+    big: ['#ffe7a3', '#ce8b23', '#6b390b'],
+    boost: ['#b5efb1', '#3c946c', '#144835'],
+  }[kind] || ['#ffe7a3', '#ce8b23', '#6b390b'];
   const grd = g.createLinearGradient(0, 0, 0, 180);
   grd.addColorStop(0, styles[0]);
   grd.addColorStop(1, styles[1]);
   g.fillStyle = grd;
   g.fillRect(0, 0, 256, 180);
-  g.fillStyle = 'rgba(255,255,255,0.28)';
-  g.beginPath(); g.ellipse(128, 20, 140, 45, 0, 0, 7); g.fill();
+  // Inset enamel frame and corner rivets give the upgrade tiles a crafted finish.
+  g.strokeStyle = 'rgba(255,242,204,0.8)';
+  g.lineWidth = 4; g.strokeRect(8, 8, 240, 164);
+  g.strokeStyle = 'rgba(9,30,37,0.28)';
+  g.lineWidth = 2; g.strokeRect(15, 15, 226, 150);
+  for (const x of [20, 236]) for (const y of [20, 160]) {
+    g.fillStyle = '#ffe7b4'; g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill();
+  }
+  g.fillStyle = 'rgba(255,255,255,0.14)';
+  g.beginPath(); g.moveTo(12, 12); g.lineTo(244, 12); g.lineTo(12, 130); g.fill();
   g.font = `900 ${label.length > 4 ? 52 : 92}px system-ui, -apple-system, "Segoe UI", sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';

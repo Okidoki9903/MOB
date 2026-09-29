@@ -2,8 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#c8612b" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#172820" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,14 +14,15 @@
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
   </script>
 </head>
 <body>
-  <div id="game"></div>
+  <div id="game" aria-label="Terrain de jeu en trois dimensions"></div>
+  <div class="vignette" aria-hidden="true"></div>
 
   <!-- world-anchored labels (plinth HP, army count) -->
   <div id="labels"></div>
@@ -32,17 +33,19 @@
   <div id="hud" class="hidden">
     <div class="hud-row">
       <div class="pill" id="level">Niveau 1</div>
-      <div class="progress"><div id="progress"></div></div>
+      <div class="progress" aria-label="Progression de l’expédition"><div id="progress"></div></div>
       <div class="pill coin"><span class="coin-ico"></span><span id="coins">0</span></div>
       <button class="icon-btn" id="pauseBtn" aria-label="Pause">❚❚</button>
     </div>
+    <div class="combat-row"><span class="combat-stat" id="waveStat">VAGUE 1</span><span class="combat-stat"><b id="killStat">0</b> ennemis</span><span class="combat-stat" id="comboStat">Combo ×0</span></div>
+    <button id="abilityBtn" class="ability-btn ready" aria-label="Activer Onde des ancêtres"><strong>✦</strong><span id="abilityLabel">Onde des ancêtres</span></button>
     <div id="bossBar" class="boss hidden">
       <div class="boss-name" id="bossName">Grand Fétiche</div>
       <div class="boss-track"><div id="bossFill"></div></div>
     </div>
   </div>
 
-  <div id="banner" class="banner"><div class="b-title"></div><div class="b-sub"></div></div>
+  <div id="banner" class="banner" role="status"><div class="b-title"></div><div class="b-sub"></div></div>
 
   <div id="tutorial" class="tutorial hidden">
     <div class="hand">👆</div>
@@ -52,56 +55,64 @@
 
   <!-- menu -->
   <div id="menu" class="screen">
+    <div class="brand-mark" aria-hidden="true"><span class="brand-symbol">↟</span> MOB <span>STUDIO / ARCADE</span></div>
+    <div class="world-caption" aria-hidden="true"><span>01 / LES TERRES DORÉES</span><strong>Petite troupe.<br>Grande aventure.</strong><p>La savane n’attend que vous.</p></div>
     <div class="menu-card">
-      <div class="logo">
+      <div class="eyebrow">UNE AVENTURE DANS LA SAVANE</div>
+      <h1 class="logo">
         <span class="l1">Les P'tits</span>
         <span class="l2">Lance-Pierres</span>
-      </div>
-      <div class="menu-level" id="menuLevel">Niveau 1</div>
-      <button class="big-btn" id="playBtn">JOUER</button>
+      </h1>
+      <p class="menu-description">Rassemble ta troupe. Défie la horde.<br>Fais de chaque pierre une légende.</p>
+      <div class="mission-row"><span>EXPÉDITION</span><div class="menu-level" id="menuLevel">Niveau 1</div></div>
+      <button class="big-btn" id="playBtn"><span>Partir à l’aventure</span><span aria-hidden="true">↗</span></button>
       <div class="shop">
-        <div class="shop-title">Améliorations <span class="pill coin small"><span class="coin-ico"></span><span id="shopCoins">0</span></span></div>
+        <div class="shop-title"><span>Préparer la troupe<small>Des améliorations permanentes</small></span> <span class="pill coin small"><span class="coin-ico"></span><span id="shopCoins">0</span></span></div>
         <div class="shop-grid" id="shopGrid"></div>
       </div>
       <div class="menu-foot">
         <button class="icon-btn" id="muteBtn" aria-label="Son">🔊</button>
-        <button class="link-btn" id="helpBtn">Comment jouer ?</button>
+        <button class="link-btn" id="helpBtn">Guide de terrain <span aria-hidden="true">↗</span></button>
       </div>
     </div>
   </div>
 
-  <div id="help" class="screen hidden">
+  <div id="help" class="screen hidden" role="dialog" aria-modal="true" aria-label="Guide de terrain">
     <div class="menu-card">
-      <h2>Comment jouer</h2>
+      <div class="eyebrow">GUIDE DE TERRAIN</div><h2>À toi de mener.</h2><p class="dialog-intro">Trois couloirs. Un seul objectif : tenir ensemble.</p>
       <ul class="help-list">
         <li><b>Glisse</b> (ou ← →) pour déplacer ta troupe entre les 3 couloirs. Les enfants tirent tout seuls.</li>
         <li><b>À gauche</b> : casse les socles pour gagner de <b>meilleurs lance-pierres</b>, puis passe sous les tuiles <b>+1</b> pour recruter.</li>
         <li><b>Au milieu</b> : la horde descend — fétiches, <b>hyènes</b> rapides, <b>buffles</b> costauds (ils emportent 3 enfants) et <b>vautours</b> volants. Chaque monstre qui te touche emporte un enfant.</li>
         <li><b>À droite</b> : le Gardien protège des renforts <b>géants</b>. Attention à ses rochers (cercle rouge) !</li>
+        <li><b>Onde des ancêtres</b> : touche Espace ou bouton ✦ pour repousser les ennemis proches et accélérer tes tirs pendant 4 secondes. Recharge : 16 secondes.</li>
+        <li><b>Combo</b> : enchaîne les éliminations sans attendre pour battre ton record.</li>
         <li>Bats le <b>boss</b> (Grand Fétiche, Buffle Géant ou Reine Hyène) pour gagner. Dépense tes pièces en améliorations.</li>
       </ul>
       <button class="big-btn" id="helpClose">OK !</button>
     </div>
   </div>
 
-  <div id="pause" class="screen hidden">
+  <div id="pause" class="screen hidden" role="dialog" aria-modal="true" aria-label="Pause">
     <div class="menu-card">
-      <h2>Pause</h2>
+      <div class="eyebrow">UNE PAUSE AU CAMP</div><h2>On reprend<br>notre souffle.</h2><p class="dialog-intro">Ta troupe t’attend. La savane aussi.</p>
       <button class="big-btn" id="resumeBtn">Continuer</button>
       <button class="big-btn alt" id="quitBtn">Menu</button>
     </div>
   </div>
 
-  <div id="end" class="screen hidden">
+  <div id="end" class="screen hidden" role="dialog" aria-modal="true" aria-label="Résultat de l’expédition">
     <div class="menu-card">
-      <h2 id="endTitle">Victoire !</h2>
+      <div class="eyebrow">RAPPORT D’EXPÉDITION</div><h2 id="endTitle">Victoire !</h2>
       <div class="end-sub" id="endSub"></div>
-      <div class="end-coins"><span class="coin-ico"></span>+<span id="endCoins">0</span></div>
+      <div class="reward-label">PIÈCES RÉCOLTÉES</div><div class="end-coins"><span class="coin-ico"></span>+<span id="endCoins">0</span></div>
+      <div id="resultStats" class="result-stats"></div>
       <button class="big-btn" id="endBtn">Suivant</button>
       <button class="big-btn alt" id="endMenu">Améliorations</button>
     </div>
   </div>
 
+  <div id="controlHint" class="control-hint hidden"><span>← →</span> Déplacer <i></i><span>ÉCHAP</span> Pause <i></i> Tir automatique</div>
   <noscript>Active JavaScript pour jouer.</noscript>
   <script type="module" src="src/main.js"></script>
 </body>

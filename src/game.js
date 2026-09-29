@@ -17,6 +17,8 @@ const MAX_PART = 900;
 const CONVEYOR_SPEED = 4.6;
 const KID_SCALE = 1.35;
 const KID_SPACING = 0.37;
+const MAX_LEVEL = 99;
+const boundedNumber = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : fallback;
 const TILE_GAP = 0.5;          // half pitch between tiles on a conveyor
 
 export const WEAPONS = [
@@ -28,6 +30,8 @@ export const WEAPONS = [
 ];
 
 // Monster families. hp is a multiplier of the wave's base hp.
+export const HORDE_MULTIPLIER = 5;
+
 export const ETYPES = {
   imp: { name: 'Fétiche', hp: 1, speed: 2.6, power: 1, r: 0.34, scale: 1.15, coin: 1, max: 520, freq: 9, anim: { amp: 0.7, bob: 0.06 } },
   hyena: { name: 'Hyène', hp: 0.55, speed: 4.3, power: 1, r: 0.38, scale: 1.1, coin: 1, max: 320, freq: 15, anim: { amp: 0.75, bob: 0.05 } },
@@ -64,6 +68,7 @@ function waveMix(L, w) {
 }
 
 export function makeLevel(L) {
+  L = Math.floor(boundedNumber(L, 1, 1, MAX_LEVEL));
   const n = L - 1;
   const e = Math.pow(1.17, n);
   const left = [];
@@ -83,7 +88,7 @@ export function makeLevel(L) {
     { t: 29, n: 45 + 14 * L, hp: 6 * e },
     { t: 43, n: 60 + 18 * L, hp: 10 * e },
     { t: 58, n: 50 + 16 * L, hp: 14 * e, boss: Math.round(5000 * Math.pow(1.28, n)) },
-  ].map((w, i) => ({ ...w, mix: waveMix(L, i) }));
+  ].map((w, i) => ({ ...w, n: w.n * HORDE_MULTIPLIER, mix: waveMix(L, i) }));
   return { left, right, waves, L, boss: BOSSES[n % BOSSES.length] };
 }
 
@@ -126,7 +131,7 @@ export class Game {
     this.opts = opts;
     this.sound = new Sound();
     this.state = 'menu';
-    this.timeScale = opts.speed || 1;
+    this.timeScale = boundedNumber(opts.speed, 1, 0.25, 8);
     this.save = this.loadSave();
     this.gtime = { value: 0 };
     this.initRenderer();
@@ -149,7 +154,12 @@ export class Game {
     const def = { level: 1, coins: 0, best: 1, up: { recruits: 0, power: 0, rate: 0 } };
     try {
       const s = JSON.parse(localStorage.getItem('pl_save') || 'null');
-      if (s && s.up) return { ...def, ...s, up: { ...def.up, ...s.up } };
+      if (s && typeof s === 'object' && !Array.isArray(s)) {
+        const up = {};
+        for (const key of Object.keys(UPGRADES)) up[key] = Math.floor(boundedNumber(s.up?.[key], 0, 0, UPGRADES[key].max));
+        const level = Math.floor(boundedNumber(s.level, 1, 1, MAX_LEVEL));
+        return { level, coins: Math.floor(boundedNumber(s.coins, 0, 0, Number.MAX_SAFE_INTEGER)), best: Math.max(level, Math.floor(boundedNumber(s.best, 1, 1, MAX_LEVEL))), up, tutorialDone: s.tutorialDone === true };
+      }
     } catch (e) { /* ignore */ }
     return def;
   }
@@ -352,19 +362,23 @@ export class Game {
   }
 
   initActors() {
-    const kidAnim = { amp: 0.75, bob: 0.05 };
+    const kidAnim = { amp: 0.75, bob: 0.05, shoot: true };
     const kcap = MAX_KIDS + MAX_DYING_KIDS;
     this.kidMesh = this.animatedMesh(M.kidGeometry(), kcap, kidAnim, false);
     for (let i = 0; i < kcap; i++) {
       const v = 0.88 + Math.random() * 0.24;
       this.kidMesh.setColorAt(i, tmpC.setRGB(v, v * 0.97, v * 0.95));
     }
+    const shot = new THREE.InstancedBufferAttribute(new Float32Array(kcap * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    this.kidMesh.geometry.setAttribute('iShot', shot);
+    this.kidMesh.userData.shot = shot;
     // slingshots share the kids' phase so they bob together
     const { phase, amt } = this.kidMesh.userData;
     this.slingGeos = WEAPONS.map((_, i) => {
       const g = M.slingshotGeometry(i);
       g.setAttribute('iPhase', phase);
       g.setAttribute('iAnim', amt);
+      g.setAttribute('iShot', shot);
       return g;
     });
     const smat = M.animate(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.15 }), kidAnim);
@@ -407,6 +421,10 @@ export class Game {
     this.partMesh.setColorAt(0, tmpC.set(0xffffff));
     this.scene.add(this.partMesh);
     this.parts = [];
+    this.abilityRing = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 64), new THREE.MeshBasicMaterial({ color: 0x75ffe0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+    this.abilityRing.rotation.x = -Math.PI / 2;
+    this.abilityRing.visible = false;
+    this.scene.add(this.abilityRing);
 
     this.glowMat = new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffd060, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
 
@@ -469,12 +487,16 @@ export class Game {
     window.addEventListener('pointercancel', up);
     this.keys = {};
     window.addEventListener('keydown', (e) => {
+      if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key) && this.state === 'playing') e.preventDefault();
+      this.keys[e.key.toLowerCase()] = true;
       this.keys[e.key] = true;
+      if (e.code === 'Space' && !e.repeat) this.activateAbility();
       if (e.key === 'Escape' || e.key === 'p') {
         if (this.state === 'playing') this.pause(); else if (this.state === 'paused') this.resume();
       }
     });
-    window.addEventListener('keyup', (e) => { this.keys[e.key] = false; });
+    window.addEventListener('keyup', (e) => { this.keys[e.key] = false; this.keys[e.key.toLowerCase()] = false; });
+    window.addEventListener('blur', () => { this.keys = {}; dragging = false; if (this.state === 'playing') this.pause(); });
   }
 
   resize() {
@@ -500,10 +522,19 @@ export class Game {
 
   // ---------------------------------------------------------------- level
   prepareLevel(L) {
+    clearTimeout(this.endTimer);
     this.clearLevel();
     const lv = makeLevel(L);
     this.level = lv;
     this.time = 0;
+    this.elapsed = 0;
+    this.combo = 0;
+    this.comboTime = 0;
+    this.bestCombo = 0;
+    this.ability = { cooldown: 0, duration: 0, totalCooldown: 16 };
+    this.abilityPulse = 0;
+    this.peakArmy = 1 + 2 * this.save.up.recruits;
+    this.runId = (this.runId || 0) + 1;
     this.kills = 0;
     this.resolved = 0;
     this.earned = 0;
@@ -516,6 +547,8 @@ export class Game {
     this.syncKids(true);
     this.slingMesh.geometry = this.slingGeos[0];
     this.enemies = [];
+    this.reinforcements = [];
+    this.spawnClock = 0;
     this.dying = [];
     this.boss = null;
     this.bossDefeated = false;
@@ -556,7 +589,7 @@ export class Game {
 
   clearLevel() {
     if (this.lanes) for (const lane of this.lanes) for (const it of lane.items) this.disposeItem(it);
-    if (this.rocks) for (const r of this.rocks) this.scene.remove(r.mesh, r.ring);
+    if (this.rocks) for (const r of this.rocks) { this.scene.remove(r.mesh, r.ring); r.ring.geometry.dispose(); }
     this.rocks = [];
     this.parts = [];
     this.ui.labels.innerHTML = '';
@@ -657,14 +690,16 @@ export class Game {
     const bonus = 25 * L + Math.floor(this.army.count / 5);
     this.earned += bonus;
     this.save.coins += bonus;
-    this.save.level = L + 1;
-    this.save.best = Math.max(this.save.best, L + 1);
+    this.save.level = Math.min(MAX_LEVEL, L + 1);
+    this.save.best = Math.max(this.save.best, this.save.level);
     this.writeSave();
     this.sound.win();
     this.sound.stopMusic();
-    setTimeout(() => {
+    const runId = this.runId;
+    this.endTimer = setTimeout(() => {
+      if (this.runId !== runId) return;
       this.state = 'win';
-      this.ui.onState('win', { level: L, earned: this.earned, army: this.army.count });
+      this.ui.onState('win', { level: L, earned: this.earned, army: this.army.count, ...this.runStats() });
     }, 1400);
   }
   lose() {
@@ -673,9 +708,11 @@ export class Game {
     this.writeSave();
     this.sound.lose();
     this.sound.stopMusic();
-    setTimeout(() => {
+    const runId = this.runId;
+    this.endTimer = setTimeout(() => {
+      if (this.runId !== runId) return;
       this.state = 'lose';
-      this.ui.onState('lose', { level: this.level.L, earned: this.earned });
+      this.ui.onState('lose', { level: this.level.L, earned: this.earned, ...this.runStats() });
     }, 1100);
   }
 
@@ -689,6 +726,44 @@ export class Game {
     this.writeSave();
     this.prepareLevel(this.save.level);
     this.sound.upgrade();
+    return true;
+  }
+
+  runStats() {
+    return { kills: this.kills, bestCombo: this.bestCombo, duration: Math.round(this.elapsed), peakArmy: this.peakArmy };
+  }
+
+  registerCombo() {
+    this.combo++;
+    this.comboTime = 3.5;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
+    if (this.combo % 10 === 0) {
+      this.floatText(this.combo + ' ÉLIMINATIONS !', this.army.x, 3, ARMY_Z, 'big');
+      this.sound.combo?.(this.combo);
+    }
+  }
+
+  activateAbility() {
+    if (this.state !== 'playing' || this.ended || this.ability.cooldown > 0) return false;
+    this.ability.cooldown = this.ability.totalCooldown;
+    this.ability.duration = 4;
+    this.abilityPulse = 0.65;
+    this.abilityX = this.army.x;
+    this.shake = Math.max(this.shake, 0.45);
+    this.sound.shield?.();
+    this.burst(this.army.x, 0.3, ARMY_Z, 0x75ffe0, 36, 10, 0.16, 4);
+    const damage = WEAPONS[this.tier].dmg * this.dmgMult * Math.max(5, Math.sqrt(this.army.count) * 2);
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i];
+      if (Math.hypot(e.x - this.army.x, e.z - ARMY_Z) > 12) continue;
+      this.damageEnemy(e, damage);
+      e.kb = 7;
+      e.z -= 1.4;
+      if (e.hp <= 0) this.killEnemy(i);
+    }
+    if (this.boss && Math.hypot(this.boss.x - this.army.x, this.boss.z - ARMY_Z) <= 12) this.damageEnemy(this.boss, damage * 3);
+    this.ui.banner('ONDE DES ANCÊTRES', 'Repousse la horde · cadence +60% pendant 4 s');
+    this.updateHud();
     return true;
   }
 
@@ -708,7 +783,7 @@ export class Game {
       this.kids.push({
         x: jump ? spawnX : this.army.x + sx, z: jump ? spawnZ : ARMY_Z + sz,
         y: jump ? 0.8 : 0, vx: 0, vz: 0, vy: jump ? 4.5 + Math.random() * 2 : 0,
-        s: instant ? 1 : 0.3, cd: Math.random() * 0.8, phase: Math.random() * 6.28, recoil: 0, lean: 0,
+        s: instant ? 1 : 0.3, cd: Math.random() * 0.8, phase: Math.random() * 6.28, recoil: 0, draw: 0, lean: 0,
       });
     }
     while (this.kids.length > want) this.killKid(this.kids.pop());
@@ -726,11 +801,14 @@ export class Game {
 
   addUnits(n, x, z) {
     this.army.count += n;
+    this.peakArmy = Math.max(this.peakArmy, this.army.count);
     this.syncKids(false, x, z);
   }
 
   loseUnits(n, fromX = null, fromZ = null) {
     if (n <= 0 || this.army.count <= 0) return;
+    this.combo = 0;
+    this.comboTime = 0;
     this.army.count = Math.max(0, this.army.count - n);
     const want = Math.min(this.army.count, MAX_KIDS);
     // the kids closest to the hit fall first
@@ -809,7 +887,13 @@ export class Game {
   }
 
   update(dt) {
+    if (this.ended) return;
     this.time += dt;
+    this.elapsed += dt;
+    this.ability.cooldown = Math.max(0, this.ability.cooldown - dt);
+    this.ability.duration = Math.max(0, this.ability.duration - dt);
+    this.comboTime = Math.max(0, this.comboTime - dt);
+    if (!this.comboTime) this.combo = 0;
     const lv = this.level;
     if (this.opts.bot) this.botThink();
     const kx = (this.keys.ArrowLeft || this.keys.a || this.keys.q ? -1 : 0) + (this.keys.ArrowRight || this.keys.d ? 1 : 0);
@@ -829,11 +913,12 @@ export class Game {
       this.spawnWave(lv.waves[this.waveIdx]);
       this.waveIdx++;
     }
-    if (this.waveIdx < lv.waves.length && this.enemies.length === 0 && !this.boss) {
+    if (this.waveIdx < lv.waves.length && this.enemies.length === 0 && this.reinforcements.length === 0 && !this.boss) {
       const next = lv.waves[this.waveIdx].t;
       if (next - this.time > 3) this.time = next - 3;
     }
 
+    this.updateReinforcements(dt);
     this.updateKids(dt);
     this.updateProjectiles(dt);
     for (const lane of this.lanes) this.updateLane(lane, dt);
@@ -841,13 +926,13 @@ export class Game {
     this.updateGuardian(dt);
     this.updateRocks(dt);
 
-    if (!this.ended && this.waveIdx >= lv.waves.length && this.enemies.length === 0 && this.bossDefeated) this.win();
+    if (!this.ended && this.waveIdx >= lv.waves.length && this.enemies.length === 0 && this.reinforcements.length === 0 && this.bossDefeated) this.win();
     this.updateHud();
   }
 
   updateKids(dt) {
     const W = WEAPONS[this.tier];
-    const interval = 1 / (W.rate * this.rateMult);
+    const interval = 1 / (W.rate * this.rateMult * (this.ability.duration > 0 ? 1.6 : 1));
     const mult = this.army.count / Math.max(1, this.kids.length);
     const dmg = W.dmg * this.dmgMult * mult;
     const aim = this.findPlazaTarget();
@@ -873,16 +958,18 @@ export class Game {
       k.lean = lerp(k.lean, clamp(-k.vx * 0.05, -0.35, 0.35), Math.min(1, dt * 10));
       k.recoil = Math.max(0, k.recoil - dt * 6);
       k.cd -= dt;
+      k.draw = k.recoil > 0.72 ? (k.recoil - 0.72) / 0.28 : clamp(1 - k.cd / Math.min(0.24, interval * 0.65), 0, 1);
       if (k.cd <= 0) {
         k.cd += interval * (0.85 + Math.random() * 0.3);
         k.recoil = 1;
+        k.draw = 1;
         let dx = (Math.random() - 0.5) * 0.05, dz = -1;
         if (aim) {
           const ax = aim.x - k.x, az = aim.z - k.z;
           const l = Math.hypot(ax, az) || 1;
           dx = ax / l; dz = az / l;
         }
-        this.fire(k.x + 0.22, 1.35 + k.y, k.z - 0.4, dx, dz, dmg, W);
+        this.fire(k.x + 0.17 * KID_SCALE, 1.065 * KID_SCALE + k.y, k.z - 0.24 * KID_SCALE, dx, dz, dmg, W);
         fired++;
       }
     }
@@ -1008,6 +1095,7 @@ export class Game {
   }
 
   damageEnemy(e, d, p) {
+    if (e.hp <= 0) return;
     e.hp -= d;
     e.flash = 0.1;
     if (p && !e.isBoss) e.kb = Math.min(e.kb + 0.9 / e.mass, 4);
@@ -1017,6 +1105,7 @@ export class Game {
       this.boss = null;
       this.ui.bossBar.classList.add('hidden');
       this.kills++;
+      this.registerCombo();
       this.resolved++;
       this.earned += 50; this.save.coins += 50;
       this.sound.crack();
@@ -1032,6 +1121,7 @@ export class Game {
     this.enemies[i] = this.enemies[this.enemies.length - 1];
     this.enemies.pop();
     this.kills++;
+    this.registerCombo();
     this.resolved++;
     const c = ETYPES[e.type].coin;
     this.earned += c; this.save.coins += c;
@@ -1140,26 +1230,10 @@ export class Game {
   }
 
   spawnWave(w) {
-    const per = 6;
-    const counts = {};
-    for (let i = 0; i < w.n; i++) {
-      const type = pick(w.mix);
-      const T = ETYPES[type];
-      counts[type] = (counts[type] || 0) + 1;
-      if (this.enemies.filter((e) => e.type === type).length >= T.max) continue;
-      const row = Math.floor(i / per), col = i % per;
-      this.enemies.push({
-        type, fly: !!T.fly, r: T.r, mass: T.hp > 2 ? 3 : 1, power: T.power, scale: T.scale,
-        x: (col - (per - 1) / 2) * 0.5 + (Math.random() - 0.5) * 0.2,
-        z: SPAWN_Z - row * 0.62 - (w.boss ? 5 : 0) - Math.random() * 0.3,
-        y: T.fly ? 2.4 : 0,
-        hp: w.hp * T.hp, flash: 0, kb: 0, vx: 0, vz: 0,
-        phase: Math.random() * 6.28, speed: T.speed * (0.92 + Math.random() * 0.16),
-        ox: (Math.random() - 0.5), oz: (Math.random() - 0.5),
-      });
-    }
-    if (counts.hyena && this.waveIdx > 0) this.sound.laugh();
-    if (counts.brute) setTimeout(() => this.sound.roar(), 400);
+    // Reserve every requested enemy; bounded active pools never discard recruits.
+    this.reinforcements.push({ wave: w, remaining: w.n });
+    if (w.mix.hyena && this.waveIdx > 0) this.sound.laugh();
+    if (w.mix.brute) this.sound.roar();
     if (w.boss) {
       const B = this.bossDef;
       const bi = BOSSES.indexOf(B);
@@ -1169,10 +1243,36 @@ export class Game {
       };
       this.ui.banner(B.name + ' arrive !', 'Tiens bon au milieu');
       this.ui.bossBar.classList.remove('hidden');
+      this.sound.boss?.();
       this.sound.roar();
     } else if (this.waveIdx === 0) {
       this.ui.banner('La horde arrive !', 'Vise le couloir du milieu');
     }
+  }
+
+  updateReinforcements(dt) {
+    if (!this.reinforcements.length) { this.spawnClock = 0; return; }
+    this.spawnClock -= dt;
+    if (this.spawnClock > 0) return;
+    this.spawnClock = 0.16;
+    const counts = {};
+    for (const e of this.enemies) counts[e.type] = (counts[e.type] || 0) + 1;
+    const batch = this.reinforcements[0], w = batch.wave;
+    for (let col = 0; col < 6 && batch.remaining > 0; col++) {
+      const type = pick(w.mix), T = ETYPES[type];
+      if ((counts[type] || 0) >= T.max) break;
+      counts[type] = (counts[type] || 0) + 1;
+      this.enemies.push({
+        type, fly: !!T.fly, r: T.r, mass: T.hp > 2 ? 3 : 1, power: T.power, scale: T.scale,
+        x: (col - 2.5) * 0.5 + (Math.random() - 0.5) * 0.2,
+        z: SPAWN_Z - Math.random() * 0.3,
+        y: T.fly ? 2.4 : 0, hp: w.hp * T.hp, flash: 0, kb: 0, vx: 0, vz: 0,
+        phase: Math.random() * 6.28, speed: T.speed * (0.92 + Math.random() * 0.16),
+        ox: Math.random() - 0.5, oz: Math.random() - 0.5,
+      });
+      batch.remaining--;
+    }
+    if (!batch.remaining) this.reinforcements.shift();
   }
 
   updateEnemies(dt) {
@@ -1332,6 +1432,7 @@ export class Game {
     else if (leftBlock || leftTiles) tx = LANES.left;
     else if (guardian && this.tier >= 3) tx = LANES.right - 0.8;
     else if (!guardian && rightTiles) tx = LANES.right;
+    if (this.enemies.filter((e) => e.z > -10).length > 8 || (this.boss && this.boss.z > -10)) this.activateAbility();
     this.army.targetX = tx;
     this.moved = 999;
   }
@@ -1342,6 +1443,9 @@ export class Game {
     if (force || this._c !== this.army.count) { this._c = this.army.count; u.count.textContent = fmt(this.army.count); }
     if (force || this._coins !== this.save.coins) { this._coins = this.save.coins; u.coins.textContent = fmt(this.save.coins); }
     if (force || this._lvl !== this.level.L) { this._lvl = this.level.L; u.level.textContent = 'Niveau ' + this.level.L; }
+    const nextWave = this.level.waves[this.waveIdx];
+    u.updateCombat?.({ kills: this.kills, combo: this.combo, bestCombo: this.bestCombo, wave: this.waveIdx, waves: this.level.waves.length, nextWave: nextWave ? Math.max(0, Math.ceil(nextWave.t - this.time)) : null, abilityReady: this.ability.cooldown <= 0, abilityCooldown: Math.ceil(this.ability.cooldown), abilityActive: this.ability.duration > 0, abilityProgress: 1 - this.ability.cooldown / this.ability.totalCooldown, elapsed: this.elapsed, peakArmy: this.peakArmy });
+    this.sound.setIntensity?.(this.boss ? 1 : Math.min(0.85, this.enemies.length / 100));
     u.progress.style.width = (Math.min(1, this.resolved / this.totalEnemies) * 100) + '%';
   }
 
@@ -1375,7 +1479,7 @@ export class Game {
 
   renderKids() {
     const km = this.kidMesh, sm = this.slingMesh;
-    const { phase, amt } = km.userData;
+    const { phase, amt, shot } = km.userData;
     let n = 0;
     for (const k of this.kids) {
       const sc = k.s * KID_SCALE;
@@ -1383,6 +1487,8 @@ export class Game {
       setInst(sm, n, k.x, k.y, k.z + k.recoil * 0.06, -k.recoil * 0.12, 0, k.lean, sc);
       phase.array[n] = k.phase;
       amt.array[n] = k.y > 0 ? 1 : k.anim;
+      shot.array[n * 2] = k.draw || 0;
+      shot.array[n * 2 + 1] = k.recoil * (1 - (k.draw || 0));
       n++;
     }
     sm.count = n;
@@ -1390,11 +1496,12 @@ export class Game {
       const sc = KID_SCALE * (d.t > 0.8 ? Math.max(0.01, 1 - (d.t - 0.8) / 0.3) : 1);
       setInst(km, n, d.x, d.y, d.z, d.rx, 0, d.rz, sc);
       phase.array[n] = d.phase; amt.array[n] = 1;
+      shot.array[n * 2] = shot.array[n * 2 + 1] = 0;
       n++;
     }
     km.count = n;
     km.instanceMatrix.needsUpdate = sm.instanceMatrix.needsUpdate = true;
-    phase.needsUpdate = amt.needsUpdate = true;
+    phase.needsUpdate = amt.needsUpdate = shot.needsUpdate = true;
   }
 
   renderEnemies() {
@@ -1464,6 +1571,14 @@ export class Game {
   }
 
   renderFx(dt) {
+    this.abilityPulse = Math.max(0, this.abilityPulse - dt);
+    this.abilityRing.visible = this.abilityPulse > 0;
+    if (this.abilityPulse > 0) {
+      const phase = 1 - this.abilityPulse / 0.65;
+      this.abilityRing.position.set(this.abilityX, 0.09, ARMY_Z);
+      this.abilityRing.scale.setScalar(0.5 + phase * 12);
+      this.abilityRing.material.opacity = (1 - phase) * 0.85;
+    }
     const pm = this.projMesh;
     for (let i = 0; i < this.proj.length; i++) {
       const p = this.proj[i];
