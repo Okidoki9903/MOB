@@ -132,6 +132,15 @@ export class Sound {
     if (!this.ctx || this.muted) return;
     [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.4, 'triangle', 0.18, 0.98, i * 0.18));
   }
+  laugh() {
+    if (!this.gate('laugh', 1)) return;
+    for (let i = 0; i < 5; i++) this.tone(520 - i * 30, 0.09, 'sawtooth', 0.05, 1.4, i * 0.1);
+  }
+  roar() {
+    if (!this.gate('roar', 1)) return;
+    this.tone(110, 0.7, 'sawtooth', 0.12, 0.6);
+    this.noiseHit(0.7, 300, 0.8, 0.2, 'lowpass');
+  }
   click() {
     if (!this.ctx || this.muted) return;
     this.tone(880, 0.06, 'sine', 0.15, 1.3);

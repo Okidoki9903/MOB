@@ -19,6 +19,7 @@ const ui = {
   progress: $('progress'),
   bossBar: $('bossBar'),
   bossFill: $('bossFill'),
+  bossName: $('bossName'),
   banner(title, sub) {
     const b = $('banner');
     b.querySelector('.b-title').textContent = title;
