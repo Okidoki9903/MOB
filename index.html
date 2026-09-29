@@ -23,6 +23,7 @@
 <body>
   <div id="game" aria-label="Terrain de jeu en trois dimensions"></div>
   <div class="vignette" aria-hidden="true"></div>
+  <div id="dangerEdge" class="danger-edge" aria-hidden="true"></div>
 
   <!-- world-anchored labels (plinth HP, army count) -->
   <div id="labels"></div>
@@ -37,8 +38,9 @@
       <div class="pill coin"><span class="coin-ico"></span><span id="coins">0</span></div>
       <button class="icon-btn" id="pauseBtn" aria-label="Pause">❚❚</button>
     </div>
-    <div class="combat-row"><span class="combat-stat" id="waveStat">VAGUE 1</span><span class="combat-stat"><b id="killStat">0</b> ennemis</span><span class="combat-stat" id="comboStat">Combo ×0</span></div>
-    <button id="abilityBtn" class="ability-btn ready" aria-label="Activer Onde des ancêtres"><strong>✦</strong><span id="abilityLabel">Onde des ancêtres</span></button>
+    <div class="combat-row"><span class="combat-stat" id="waveStat">VAGUE 1</span><span class="combat-stat"><b id="killStat">0</b> éliminés</span><span class="combat-stat" id="comboStat">Combo ×0</span><span class="combat-stat threat-stat" id="threatStat"><b id="enemyStat">0</b> en approche</span></div>
+    <div id="dangerCue" class="danger-cue hidden" role="status"></div>
+    <button id="abilityBtn" class="ability-btn ready" aria-label="Activer Onde des ancêtres"><strong>✦</strong><span id="abilityLabel">Onde des ancêtres</span><small id="abilityHint">ESPACE · Repousse la horde</small><span class="ability-track" aria-hidden="true"><span id="abilityFill"></span></span></button>
     <div id="bossBar" class="boss hidden">
       <div class="boss-name" id="bossName">Grand Fétiche</div>
       <div class="boss-track"><div id="bossFill"></div></div>

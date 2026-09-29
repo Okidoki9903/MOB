@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as M from './models.js';
 import { Sound } from './audio.js';
+import { REVEAL_Z, upgradeAvailable, emergence } from './presentation.js';
 
 // ------------------------------------------------------------------ layout
 const LANES = { left: -4.2, mid: 0, right: 4.2 };
@@ -30,11 +31,12 @@ export const WEAPONS = [
 ];
 
 // Monster families. hp is a multiplier of the wave's base hp.
-export const HORDE_MULTIPLIER = 5;
+// Four times the previous fivefold hordes; excess troops wait in the reinforcement queue.
+export const HORDE_MULTIPLIER = 20;
 
 export const ETYPES = {
   imp: { name: 'Fétiche', hp: 1, speed: 2.6, power: 1, r: 0.34, scale: 1.15, coin: 1, max: 520, freq: 9, anim: { amp: 0.7, bob: 0.06 } },
-  hyena: { name: 'Hyène', hp: 0.55, speed: 4.3, power: 1, r: 0.38, scale: 1.1, coin: 1, max: 320, freq: 15, anim: { amp: 0.75, bob: 0.05 } },
+  hyena: { name: 'Hyène', hp: 0.55, speed: 6.4, power: 1, r: 0.38, scale: 1.1, coin: 1, max: 320, freq: 15, anim: { amp: 0.75, bob: 0.05 } },
   brute: { name: 'Buffle', hp: 5, speed: 1.8, power: 3, r: 0.6, scale: 1.3, coin: 4, max: 140, freq: 6, anim: { amp: 0.5, bob: 0.08 } },
   vulture: { name: 'Vautour', hp: 0.7, speed: 3.5, power: 1, r: 0.45, scale: 1.25, coin: 2, max: 160, freq: 11, fly: true, anim: { amp: 0, bob: 0, flap: 0.75 } },
 };
@@ -88,7 +90,7 @@ export function makeLevel(L) {
     { t: 29, n: 45 + 14 * L, hp: 6 * e },
     { t: 43, n: 60 + 18 * L, hp: 10 * e },
     { t: 58, n: 50 + 16 * L, hp: 14 * e, boss: Math.round(5000 * Math.pow(1.28, n)) },
-  ].map((w, i) => ({ ...w, n: w.n * HORDE_MULTIPLIER, mix: waveMix(L, i) }));
+  ].map((w, i) => ({ ...w, n: w.n * HORDE_MULTIPLIER, hp: w.hp * 1.25, mix: waveMix(L, i) }));
   return { left, right, waves, L, boss: BOSSES[n % BOSSES.length] };
 }
 
@@ -531,6 +533,7 @@ export class Game {
     this.combo = 0;
     this.comboTime = 0;
     this.bestCombo = 0;
+    this.lastComboFeedback = -Infinity;
     this.ability = { cooldown: 0, duration: 0, totalCooldown: 16 };
     this.abilityPulse = 0;
     this.peakArmy = 1 + 2 * this.save.up.recruits;
@@ -567,7 +570,7 @@ export class Game {
       const lane = { key, x: LANES[key], items: [] };
       let z = MOUTH_Z;
       for (const it of items) {
-        const item = { ...it, maxHp: it.hp, alive: true, bob: Math.random() * 6 };
+        const item = { ...it, maxHp: it.hp, alive: true, bob: Math.random() * 6, reveal: 0 };
         if (it.kind === 'gate' || it.kind === 'guardian') {
           const depth = it.kind === 'guardian' ? 1.1 : 0.7;
           item.halfDepth = depth;
@@ -618,6 +621,7 @@ export class Game {
       glow.position.set(0, 1.9, 0.2);
       g.add(glow);
       g.position.set(x, 0, it.z);
+      g.visible = false;
       it.mesh = g;
       it.icon = holder;
       this.scene.add(g);
@@ -737,7 +741,8 @@ export class Game {
     this.combo++;
     this.comboTime = 3.5;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    if (this.combo % 10 === 0) {
+    if (this.combo % 25 === 0 && this.elapsed - (this.lastComboFeedback ?? -Infinity) >= 2) {
+      this.lastComboFeedback = this.elapsed;
       this.floatText(this.combo + ' ÉLIMINATIONS !', this.army.x, 3, ARMY_Z, 'big');
       this.sound.combo?.(this.combo);
     }
@@ -999,8 +1004,9 @@ export class Game {
   }
 
   fire(x, y, z, dx, dz, dmg, W) {
+    // A physical 14 m lifetime keeps impacts in the visible battlefield for every weapon.
     if (this.proj.length >= MAX_PROJ) return;
-    this.proj.push({ x, y, z, vx: dx * W.speed, vz: dz * W.speed, vy: 1.4, dmg, splash: W.splash, color: W.stone, size: W.size, life: 3.2 });
+    this.proj.push({ x, y, z, vx: dx * W.speed, vz: dz * W.speed, vy: 1.4, dmg, splash: W.splash, color: W.stone, size: W.size, life: 14 / W.speed });
   }
 
   buildGrid() {
@@ -1089,7 +1095,11 @@ export class Game {
       for (const e of b) {
         if (e === skip || e.hp <= 0) continue;
         const dx = p.x - e.x, dz = p.z - e.z;
-        if (dx * dx + dz * dz < r * r) { this.damageEnemy(e, p.dmg * 0.6); e.kb += 1.5; }
+        if (dx * dx + dz * dz < r * r) {
+          const falloff = 1 - Math.hypot(dx, dz) / r;
+          this.damageEnemy(e, p.dmg * (0.2 + 0.4 * falloff));
+          e.kb = Math.min(0.4, e.kb + 0.12 / e.mass);
+        }
       }
     }
   }
@@ -1143,12 +1153,14 @@ export class Game {
   frontBlocker(lane) {
     for (const it of lane.items) {
       if (!it.alive) continue;
+      if (it.kind === 'gate' && (!upgradeAvailable(it, this.elapsed, this.waveIdx) || it.z < REVEAL_Z)) return null;
       if (it.kind === 'gate' || it.kind === 'guardian') return it;
     }
     return null;
   }
 
   damageBlocker(lane, it, p) {
+    if (it.kind === 'gate' && (!upgradeAvailable(it, this.elapsed, this.waveIdx) || it.reveal < 0.5)) return;
     it.hp -= p.dmg;
     it.hit = 0.1;
     this.sound.thud();
@@ -1182,13 +1194,23 @@ export class Game {
     let limit = Infinity;
     for (let i = 0; i < lane.items.length; i++) {
       const it = lane.items[i];
+      if (it.kind === 'gate' && !upgradeAvailable(it, this.elapsed, this.waveIdx)) {
+        limit = it.z - it.halfDepth - 0.6;
+        it.mesh.visible = false;
+        continue;
+      }
       if (it.kind === 'gate' || it.kind === 'guardian') {
         const stop = MOUTH_Z - it.halfDepth;
         it.z = Math.min(it.z + CONVEYOR_SPEED * dt, stop, limit - it.halfDepth);
         limit = it.z - it.halfDepth - 0.6;
         const sh = it.hit > 0 ? (Math.random() - 0.5) * 0.14 : 0;
         if (it.kind === 'gate') {
-          it.mesh.position.set(lane.x + sh, 0, it.z);
+          if (it.z >= REVEAL_Z) {
+            if (!it.reveal) this.burst(lane.x, 0.12, it.z, 0xd9bc87, 14, 3.5, 0.11, 8);
+            it.reveal = Math.min(1, (it.reveal || 0) + dt / 0.65);
+          }
+          it.mesh.visible = it.reveal > 0;
+          it.mesh.position.set(lane.x + sh, -3.2 * (1 - emergence(it.reveal)), it.z);
           it.icon.rotation.y += dt * 1.8;
           it.icon.position.y = 1.9 + Math.sin(this.time * 3) * 0.12;
         } else {
@@ -1200,6 +1222,7 @@ export class Game {
         if (it.label) it.label.textContent = fmt(it.hp);
       } else {
         it.z = Math.min(it.z + CONVEYOR_SPEED * dt, limit - TILE_GAP);
+        if (it.z >= REVEAL_Z) it.reveal = Math.min(1, (it.reveal || 0) + dt / 0.45);
         limit = it.z - TILE_GAP;
         if (!it.collected && it.z > ARMY_Z - this.army.r * 0.7 - 0.3 && it.z < ARMY_Z + 1.5) {
           if (Math.abs(this.army.x - lane.x) < 1.3 + this.army.r * 0.5) this.collect(lane, it);
@@ -1254,18 +1277,19 @@ export class Game {
     if (!this.reinforcements.length) { this.spawnClock = 0; return; }
     this.spawnClock -= dt;
     if (this.spawnClock > 0) return;
-    this.spawnClock = 0.16;
+    // Give early recruits time to arrive before the sustained late-wave assault.
+    this.spawnClock = this.waveIdx < 3 ? 0.28 : 0.06;
     const counts = {};
     for (const e of this.enemies) counts[e.type] = (counts[e.type] || 0) + 1;
     const batch = this.reinforcements[0], w = batch.wave;
-    for (let col = 0; col < 6 && batch.remaining > 0; col++) {
+    for (let col = 0; col < (this.waveIdx < 3 ? 6 : 18) && batch.remaining > 0; col++) {
       const type = pick(w.mix), T = ETYPES[type];
       if ((counts[type] || 0) >= T.max) break;
       counts[type] = (counts[type] || 0) + 1;
       this.enemies.push({
         type, fly: !!T.fly, r: T.r, mass: T.hp > 2 ? 3 : 1, power: T.power, scale: T.scale,
-        x: (col - 2.5) * 0.5 + (Math.random() - 0.5) * 0.2,
-        z: SPAWN_Z - Math.random() * 0.3,
+        x: ((col % 6) - 2.5) * 0.5 + (Math.random() - 0.5) * 0.2,
+        z: (this.waveIdx < 3 ? SPAWN_Z : -32) - Math.floor(col / 6) * 0.6 - Math.random() * 0.3,
         y: T.fly ? 2.4 : 0, hp: w.hp * T.hp, flash: 0, kb: 0, vx: 0, vz: 0,
         phase: Math.random() * 6.28, speed: T.speed * (0.92 + Math.random() * 0.16),
         ox: Math.random() - 0.5, oz: Math.random() - 0.5,
@@ -1422,7 +1446,7 @@ export class Game {
   // ---------------------------------------------------------------- bot
   botThink() {
     const lanes = this.lanes;
-    const threat = this.enemies.some((e) => e.z > -24) || (this.boss && this.boss.z > -30);
+    const threat = this.enemies.some((e) => e.z > -7) || (this.boss && this.boss.z > -18);
     const leftBlock = this.frontBlocker(lanes[0]);
     const leftTiles = lanes[0].items.some((it) => it.kind !== 'gate' && !it.collected && it.z > -20);
     const guardian = lanes[1].items.find((it) => it.kind === 'guardian');
@@ -1444,7 +1468,8 @@ export class Game {
     if (force || this._coins !== this.save.coins) { this._coins = this.save.coins; u.coins.textContent = fmt(this.save.coins); }
     if (force || this._lvl !== this.level.L) { this._lvl = this.level.L; u.level.textContent = 'Niveau ' + this.level.L; }
     const nextWave = this.level.waves[this.waveIdx];
-    u.updateCombat?.({ kills: this.kills, combo: this.combo, bestCombo: this.bestCombo, wave: this.waveIdx, waves: this.level.waves.length, nextWave: nextWave ? Math.max(0, Math.ceil(nextWave.t - this.time)) : null, abilityReady: this.ability.cooldown <= 0, abilityCooldown: Math.ceil(this.ability.cooldown), abilityActive: this.ability.duration > 0, abilityProgress: 1 - this.ability.cooldown / this.ability.totalCooldown, elapsed: this.elapsed, peakArmy: this.peakArmy });
+    const threatCount = this.enemies.reduce((n, e) => n + (e.z > -8 ? 1 : 0), 0);
+    u.updateCombat?.({ enemyCount: this.enemies.length, threatCount, threatLevel: clamp(threatCount / 30, 0, 1), kills: this.kills, combo: this.combo, bestCombo: this.bestCombo, wave: this.waveIdx, waves: this.level.waves.length, nextWave: nextWave ? Math.max(0, Math.ceil(nextWave.t - this.time)) : null, abilityReady: this.ability.cooldown <= 0, abilityCooldown: Math.ceil(this.ability.cooldown), abilityActive: this.ability.duration > 0, abilityProgress: 1 - this.ability.cooldown / this.ability.totalCooldown, elapsed: this.elapsed, peakArmy: this.peakArmy });
     this.sound.setIntensity?.(this.boss ? 1 : Math.min(0.85, this.enemies.length / 100));
     u.progress.style.width = (Math.min(1, this.resolved / this.totalEnemies) * 100) + '%';
   }
@@ -1555,13 +1580,14 @@ export class Game {
     for (const m of Object.values(this.tileMeshes)) m.userData.n = 0;
     for (const lane of this.lanes) {
       for (const it of lane.items) {
-        if (!it.tmesh || it.z < FAR_Z + 15) continue;
+        if (!it.tmesh || it.z < REVEAL_Z || !it.reveal) continue;
         const m = it.tmesh;
         const i = m.userData.n++;
         if (i >= 90) continue;
         const bob = Math.sin(t * 3 + it.bob) * 0.08;
-        const sc = it.scale * (it.kind === 'boost' ? 1.15 : 1);
-        setInst(m, i, lane.x, it.y + bob, it.z, -0.5, Math.sin(t * 2 + it.bob) * 0.12, 0, sc);
+        const rise = emergence(it.reveal);
+        const sc = it.scale * (it.kind === 'boost' ? 1.15 : 1) * (0.7 + rise * 0.3);
+        setInst(m, i, lane.x, it.y + bob - (1 - rise) * 1.5, it.z, -0.5, Math.sin(t * 2 + it.bob) * 0.12, 0, sc);
       }
     }
     for (const m of Object.values(this.tileMeshes)) {
@@ -1648,7 +1674,7 @@ export class Game {
         const y = it.kind === 'guardian' ? 1.3 : 0.5;
         const p = this.project(lane.x, y, it.z + it.halfDepth + 0.1);
         it.label.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
-        it.label.style.opacity = it.z > -40 ? 1 : 0;
+        it.label.style.opacity = it.kind === 'gate' ? (it.mesh.visible ? Math.min(1, (it.reveal || 0) * 2) : 0) : (it.z > -30 ? 1 : 0);
       }
     }
     const p = this.project(this.army.x, 1.6 + this.army.r * 0.4, ARMY_Z - this.army.r);

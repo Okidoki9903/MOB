@@ -275,3 +275,17 @@ h2{font:700 45px/.98 var(--font-display);text-transform:uppercase;color:var(--cr
 @media(max-height:740px){#menu{padding-top:66px;padding-bottom:18px}.brand-mark{top:17px}.logo .l1{font-size:29px}.logo .l2{font-size:59px}.menu-description{margin:12px 0;font-size:11px}.eyebrow{margin-bottom:10px}.big-btn{margin:10px 0 15px;padding:15px 18px}.up-card{padding:9px 4px}.menu-foot{margin-top:10px}.shop-title{margin-bottom:10px}}
 @media(max-height:550px) and (min-width:700px){#menu{padding:70px 5vw 20px;display:block}#menu .menu-card{width:400px}.logo .l2{font-size:50px}.shop{position:absolute;left:52%;top:100px;width:42%;max-width:400px}.world-caption{display:none}.menu-description{margin:12px 0}.brand-mark{left:5vw}.menu-foot{margin-top:12px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+/* Combat feedback stays at the edges, leaving the horde unobstructed. */
+.danger-edge { position:fixed; inset:0; pointer-events:none; opacity:0; box-shadow:inset 0 0 55px 8px #cf482d88; transition:opacity .25s; }
+.threat-stat { margin-left:auto; white-space:nowrap; }
+.threat-stat.hot { background:#662d22dd; border-color:#ef966577; }
+.threat-stat.hot b { color:#ffd6b0; }
+.danger-cue { width:max-content; max-width:100%; margin:7px auto 0; padding:5px 10px; border-radius:4px; color:#ffe0bc; background:#55291dcc; font-size:9px; font-weight:700; letter-spacing:.6px; text-align:center; }
+.ability-btn { overflow:hidden; padding-bottom:17px; }
+.ability-btn small { display:block; margin-top:6px; font-size:8px; font-weight:500; letter-spacing:.3px; opacity:.8; }
+.ability-track { position:absolute; bottom:0; left:0; right:0; height:3px; background:#ffffff12; }
+.ability-track>span { display:block; height:100%; background:#edc46f; transform-origin:left; transition:transform .15s linear; }
+.ability-btn.urgent { border-color:#ffd28e; background:#4a3524f2; box-shadow:0 0 22px #eea75a38; }
+body:not([data-state="playing"]) .danger-edge { opacity:0!important; }
+@media(max-width:420px) { .combat-row {gap:5px;} .combat-stat {font-size:8px;padding:6px;} .danger-cue {font-size:8px;letter-spacing:.2px;} }
+@media(max-height:550px) { .danger-cue {margin-top:4px;padding:3px 8px;} .ability-btn {bottom:14px;} }

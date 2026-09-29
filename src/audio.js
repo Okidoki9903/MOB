@@ -5,6 +5,7 @@ export class Sound {
     this.ctx = null;
     this.muted = false;
     this.last = {};
+    this.killVoice = 0;
     this.musicOn = false;
     this.step = 0;
     this.intensity = 0;
@@ -95,8 +96,10 @@ export class Sound {
     this.noiseHit(0.05, 3000, 2, 0.05);
   }
   hit() {
-    if (!this.gate('hit', 16)) return;
-    this.noiseHit(0.07, 900 + Math.random() * 500, 1.5, 0.12);
+    if (!this.gate('hit', 12)) return;
+    // Short stone-on-body knock: distinguish an impact from a confirmed kill.
+    this.tone(185 + Math.random() * 35, 0.055, 'triangle', 0.11, 0.62);
+    this.noiseHit(0.035, 1800, 1.2, 0.09);
   }
   thud() {
     if (!this.gate('thud', 10)) return;
@@ -104,8 +107,12 @@ export class Sound {
     this.noiseHit(0.08, 400, 1, 0.12);
   }
   pop() {
-    if (!this.gate('pop', 18)) return;
-    this.tone(300 + Math.random() * 120, 0.09, 'square', 0.05, 0.5);
+    if (!this.gate('pop', 10)) return;
+    // Lower falling impact plus a tiny pitched confirmation reads through a horde.
+    const note = [0, 2, 4, 7, 9][this.killVoice++ % 5];
+    this.tone(260, 0.12, 'triangle', 0.14, 0.35);
+    this.tone(587 * Math.pow(2, note / 12), 0.075, 'sine', 0.075, 1, 0.025);
+    this.noiseHit(0.055, 680, 0.8, 0.07, 'lowpass');
   }
   collect(n = 0) {
     if (!this.gate('collect', 20)) return;
@@ -134,8 +141,9 @@ export class Sound {
     this.tone(70, 0.6, 'sine', 0.5, 0.4);
   }
   hurt() {
-    if (!this.gate('hurt', 8)) return;
-    this.tone(220, 0.14, 'sawtooth', 0.06, 0.6);
+    if (!this.gate('hurt', 4)) return;
+    this.tone(155, 0.18, 'triangle', 0.2, 0.52);
+    this.noiseHit(0.09, 440, 1, 0.12, 'lowpass');
   }
   win() {
     if (!this.ctx || this.muted) return;

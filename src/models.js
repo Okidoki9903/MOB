@@ -325,7 +325,8 @@ export function slingshotGeometry(tier) {
 // Fétiche imp: red body, carved ivory mask, raffia skirt.
 export function impGeometry(boss = false) {
   const b = new Builder();
-  const red = boss ? 0x8c1414 : 0xc7332a, redD = boss ? 0x5e0c0c : 0x8f2019;
+  // Crimson bodies and pale masks stay legible against the ochre road.
+  const red = boss ? 0xa30e32 : 0xe02b48, redD = boss ? 0x490d29 : 0x851831;
   const hip = [0, 0.3, 0];
   for (const sx of [-1, 1]) {
     b.add(Cap(0.065, 0.2, 8), redD, [sx * 0.09, 0.16, 0], [0, 0, 0], 1, { limb: [sx, 0], pivot: hip });
@@ -336,7 +337,7 @@ export function impGeometry(boss = false) {
   b.add(Lathe([[0.001, 0.3], [0.2, 0.32], [0.24, 0.45], [0.22, 0.58], [0.15, 0.68], [0.08, 0.72]], 16), red);
   b.add(Sph(0.2, 18, 14), redD, [0, 0.86, -0.02]);
   // mask
-  b.add(Sph(0.2, 20, 16), 0xf3e7cf, [0, 0.86, 0.1], [0, 0, 0], [0.9, 1.25, 0.5]);
+  b.add(Sph(0.2, 20, 16), 0xfff1d6, [0, 0.86, 0.1], [0, 0, 0], [1.02, 1.3, 0.5]);
   for (const sx of [-1, 1]) {
     b.add(Sph(0.045, 10, 8), 0x120605, [sx * 0.07, 0.9, 0.2], [0, 0, sx * 0.4], [1.4, 0.55, 0.5]);
     b.add(Sph(0.018, 6, 4), 0xffd23a, [sx * 0.07, 0.9, 0.215]);
@@ -363,17 +364,17 @@ export function impGeometry(boss = false) {
 // Hyena: fast quadruped.
 export function hyenaGeometry(boss = false) {
   const b = new Builder();
-  const fur = boss ? 0x8a6a3a : 0xc3a06a, dark = 0x4f3e2a, belly = 0xe0c996;
+  const fur = boss ? 0x765541 : 0x94704b, dark = 0x292734, belly = 0xffdf9d;
   b.add(Cap(0.2, 0.42, 12), fur, [0, 0.55, 0], [Math.PI / 2 - 0.18, 0, 0]);
   b.add(Sph(0.16, 12, 10), belly, [0, 0.48, 0.02], [0, 0, 0], [1, 0.8, 2]);
   // mane
-  for (let i = 0; i < 6; i++) b.add(Sph(0.06, 8, 6), dark, [0, 0.74 - i * 0.02, 0.28 - i * 0.1], [0, 0, 0], [0.6, 1.2, 1.2]);
+  for (let i = 0; i < 6; i++) b.add(Sph(0.06, 8, 6), 0xf3c86b, [0, 0.74 - i * 0.02, 0.28 - i * 0.1], [0, 0, 0], [0.6, 1.2, 1.2]);
   // spots
   for (const [x, y, z] of [[0.17, 0.6, 0.1], [-0.16, 0.58, -0.05], [0.14, 0.5, -0.2], [-0.15, 0.62, 0.18], [0.12, 0.66, -0.1]]) {
     b.add(Sph(0.045, 8, 6), dark, [x, y, z], [0, 0, 0], [0.4, 1, 1]);
   }
   // head
-  b.add(Sph(0.16, 16, 12), fur, [0, 0.76, 0.42]);
+  b.add(Sph(0.18, 16, 12), fur, [0, 0.76, 0.42]);
   b.add(Cap(0.085, 0.14, 10), dark, [0, 0.7, 0.58], [Math.PI / 2, 0, 0]);
   b.add(Sph(0.035, 8, 6), 0x0d0805, [0, 0.72, 0.69]);
   for (const sx of [-1, 1]) {
@@ -402,7 +403,8 @@ export function hyenaGeometry(boss = false) {
 // Buffalo brute: big, slow, hits hard.
 export function bruteGeometry(boss = false) {
   const b = new Builder();
-  const hide = boss ? 0x3a2b30 : 0x5a4841, hideD = 0x2e2320, paint = 0xd8261c;
+  // Cool charcoal masses distinguish the heavy class from fast red imps.
+  const hide = boss ? 0x342744 : 0x494762, hideD = 0x252239, paint = 0xff704b;
   const hip = [0, 0.42, 0];
   for (const sx of [-1, 1]) {
     b.add(Cap(0.1, 0.26, 10), hideD, [sx * 0.15, 0.22, 0], [0, 0, 0], 1, { limb: [sx * 0.8, 0], pivot: hip });
@@ -410,10 +412,10 @@ export function bruteGeometry(boss = false) {
   }
   b.add(Lathe([[0.3, 0.3], [0.33, 0.42], [0.28, 0.48]], 18), 0x7a4e2a);
   b.add(Lathe([[0.001, 0.4], [0.3, 0.44], [0.38, 0.62], [0.4, 0.8], [0.3, 0.95], [0.15, 1.0]], 18), hide);
-  b.add(Lathe([[0.395, 0.72], [0.395, 0.76]], 18), paint);
+  b.add(Lathe([[0.398, 0.69], [0.398, 0.78]], 18), paint);
   // head
   b.add(Sph(0.22, 18, 14), hide, [0, 1.08, 0.12], [0, 0, 0], [1.1, 1, 1]);
-  b.add(Sph(0.15, 14, 10), 0x7d6a60, [0, 1.0, 0.3], [0, 0, 0], [1, 0.8, 0.9]);
+  b.add(Sph(0.15, 14, 10), 0xb6a5a3, [0, 1.0, 0.3], [0, 0, 0], [1, 0.8, 0.9]);
   b.add(new THREE.TorusGeometry(0.05, 0.012, 6, 14), 0xffc53a, [0, 0.93, 0.4], [0.2, 0, 0]);
   for (const sx of [-1, 1]) {
     b.add(Horn([[sx * 0.14, 1.18, 0.08], [sx * 0.42, 1.2, 0.05], [sx * 0.52, 1.36, 0.14], [sx * 0.44, 1.46, 0.2]], 0.08, 0.012, 16, 8), 0xefe3c4);
@@ -435,7 +437,7 @@ export function bruteGeometry(boss = false) {
 // Vulture: flies over the corridor.
 export function vultureGeometry() {
   const b = new Builder();
-  const feather = 0x3b302b, featherL = 0x5b4c42, neck = 0xd9907c;
+  const feather = 0x30384d, featherL = 0xede1c4, neck = 0xe36b70;
   b.add(Sph(0.2, 14, 10), feather, [0, 0, 0], [0, 0, 0], [1, 0.8, 1.5]);
   b.add(Sph(0.12, 12, 10), 0xe8dccb, [0, 0.1, 0.22], [0, 0, 0], [1.2, 0.7, 0.8]);
   b.add(Cap(0.05, 0.12, 8), neck, [0, 0.14, 0.34], [1.1, 0, 0]);

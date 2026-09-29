@@ -12,6 +12,7 @@ function show(name) {
 }
 
 let bannerTimer = 0;
+let previousDangerCue = "";
 const ui = {
   labels: $('labels'),
   floats: $('floats'),
@@ -38,6 +39,20 @@ const ui = {
     $('waveStat').textContent = `VAGUE ${Math.max(1, data.wave)} / ${data.waves}`;
     $('killStat').textContent = data.kills;
     $('comboStat').textContent = `Combo ×${data.combo}`;
+    const closeEnemies = data.threatCount ?? 0;
+    const threat = Math.max(0, Math.min(1, data.threatLevel ?? 0));
+    $('enemyStat').textContent = data.enemyCount ?? 0;
+    $('threatStat').classList.toggle('hot', threat >= 0.5);
+    $('dangerEdge').style.opacity = String(threat * 0.65);
+    const dangerCue = closeEnemies >= 8 ? (data.abilityReady ? 'HORDE AU CONTACT · DÉCLENCHE TON ONDE' : 'HORDE AU CONTACT · CHANGE DE COULOIR') : '';
+    if (dangerCue !== previousDangerCue) {
+      $('dangerCue').textContent = dangerCue;
+      $('dangerCue').classList.toggle('hidden', !dangerCue);
+      previousDangerCue = dangerCue;
+    }
+    $('abilityFill').style.transform = `scaleX(${Math.max(0, Math.min(1, data.abilityProgress ?? 1))})`;
+    $('abilityHint').textContent = data.abilityActive ? 'Cadence renforcée' : data.abilityReady ? (matchMedia('(pointer: coarse)').matches ? 'TOUCHE ICI · Repousse la horde' : 'ESPACE · Repousse la horde') : 'Bientôt disponible';
+    $('abilityBtn').classList.toggle('urgent', data.abilityReady && closeEnemies >= 8);
     $('abilityBtn').disabled = !data.abilityReady;
     $('abilityBtn').classList.toggle('ready', data.abilityReady);
     $('abilityLabel').textContent = data.abilityActive ? 'Onde active !' : data.abilityReady ? 'Onde des ancêtres' : `Recharge · ${Math.ceil(data.abilityCooldown)} s`;
@@ -53,7 +68,7 @@ const ui = {
     $('hud').classList.toggle('hidden', !(playing || state === 'paused'));
     $('labels').classList.toggle('hidden', !(playing || state === 'paused'));
     $('bubble').classList.toggle('hidden', !playing);
-    if (!playing) ui.tutorial(false);
+    if (!playing) { ui.tutorial(false); $('dangerEdge').style.opacity = '0'; }
     if (state === 'menu') { refreshMenu(); show('menu'); }
     else if (state === 'paused') show('pause');
     else if (state === 'win') {

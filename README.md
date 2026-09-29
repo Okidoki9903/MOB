@@ -73,4 +73,10 @@ Les tests couvrent la portée et la recharge de la capacité, son blocage hors c
 
 Chaque personnage arme réellement son lance-pierre : le bras tire la poche et les deux branches de l’élastique, puis la main poursuit son mouvement au relâchement. Le cycle est synchronisé avec les tirs et fonctionne sur les cinq armes.
 
-Toutes les vagues contiennent désormais **5 fois plus d’ennemis** : le niveau 1 passe de 267 à 1 335 ennemis, plus le boss. Des renforts en file attendent une place dans les groupes actifs ; aucun ennemi prévu n’est abandonné lorsque la limite est atteinte. La victoire attend également la fin des renforts.
+Toutes les vagues contiennent désormais **4 fois plus d’ennemis que la précédente version renforcée** : le niveau 1 comporte 5 340 ennemis, plus le boss (20 fois le volume initial). Des renforts en file attendent une place dans les groupes actifs ; aucun ennemi prévu n’est abandonné lorsque la limite est atteinte. La victoire attend également la fin des renforts.
+
+Les ennemis ordinaires gagnent 25 % de points de vie. Les projectiles expirent après 14 mètres, les assauts se rapprochent dès la troisième vague et le recul des explosions est plafonné : les bandits peuvent enfin atteindre la troupe. Les silhouettes et les sons distinguent impact, élimination et perte alliée. Le HUD sépare les éliminations des ennemis en approche et signale la pression proche.
+
+Les armes avancées restent enfouies jusqu’aux vagues 2, 3 et 4 (avec délais minimums de 12, 28 et 44 secondes), puis sortent du sol à proximité avec de la poussière. Elles ne captent aucun projectile tant qu’elles sont cachées.
+
+La simulation déterministe (`node tests/balance-sim.mjs`) utilise les règles réelles sans rendu. Sur cinq graines au niveau 1 sans améliorations permanentes, le bot gagne trois fois ; les éliminations moyennes se font à 10–14 mètres. Au niveau 3 avec deux améliorations dans chaque catégorie, il gagne cinq fois sur cinq. Ce contrôle ne remplace pas un essai humain sur téléphone.

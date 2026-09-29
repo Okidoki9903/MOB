@@ -1,8 +1,8 @@
 // Cache a complete, versioned game so a first online visit enables offline play.
-const CACHE = 'plp-v3';
+const CACHE = 'plp-v4';
 const ASSETS = [
   './', './index.html', './styles.css', './icon.svg', './manifest.webmanifest',
-  './src/main.js', './src/game.js', './src/models.js', './src/audio.js',
+  './src/main.js', './src/game.js', './src/models.js', './src/audio.js', './src/presentation.js',
   './vendor/three.module.min.js',
 ];
 self.addEventListener('install', (event) => {

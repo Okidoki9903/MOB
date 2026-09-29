@@ -6,7 +6,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
     ? { url: new URL('../vendor/three.module.min.js', import.meta.url).href, shortCircuit: true }
     : nextResolve(specifier, context);
 }});
-const { Game, makeLevel, upgradeCost } = await import('../src/game.js');
+const { Game, makeLevel, upgradeCost, WEAPONS } = await import('../src/game.js');
 const noop = () => {};
 function combat() {
   const game = Object.create(Game.prototype);
@@ -100,9 +100,9 @@ test('invalid campaign inputs and damaged saves remain bounded', () => {
   }
 });
 
-test('every campaign wave contains exactly five times its original enemy count', () => {
+test('every campaign wave contains four times the previous fivefold horde count', () => {
   for (const L of [1, 3, 10]) {
-    assert.deepEqual(makeLevel(L).waves.map(w => w.n), [18 + 6*L, 30 + 10*L, 45 + 14*L, 60 + 18*L, 50 + 16*L].map(n => n*5));
+    assert.deepEqual(makeLevel(L).waves.map(w => w.n), [18 + 6*L, 30 + 10*L, 45 + 14*L, 60 + 18*L, 50 + 16*L].map(n => n*20));
   }
 });
 test('reinforcements preserve enemies when the active pool is full and resume when space opens', () => {
@@ -118,4 +118,40 @@ test('reinforcements preserve enemies when the active pool is full and resume wh
   assert.equal(g.enemies.length, 520);
   assert.equal(g.reinforcements.length, 0);
   assert.ok(g.enemies.slice(-12).every(e => e.hp > 0 && Number.isFinite(e.z)));
+});
+
+
+test('all weapons expire after fourteen metres instead of hitting enemies at spawn', () => {
+  const g = combat(); g.proj = [];
+  for (const weapon of WEAPONS) {
+    g.fire(0, 1.3, 0, 0, -1, weapon.dmg, weapon);
+    const projectile = g.proj.at(-1);
+    assert.equal(projectile.life * weapon.speed, 14);
+  }
+});
+
+test('regular enemies gain twenty-five percent health while boss health stays stable', () => {
+  const waves = makeLevel(1).waves;
+  assert.deepEqual(waves.map(w => w.hp), [1.5, 3, 6, 10, 14].map(hp => hp * 1.25));
+  assert.equal(waves.at(-1).boss, 5000);
+});
+
+
+test('repeated splash impacts cannot accumulate unbounded knockback', () => {
+  const g = combat();
+  const target = { hp: 10000, x: 0, z: 0, kb: 0, mass: 1 };
+  const grid = new Map([[(64 << 10) | 512, [target]]]);
+  for (let i = 0; i < 100; i++) g.splash({ x: 0, z: 0, splash: 1, dmg: 1 }, grid, 1.6);
+  assert.ok(target.kb <= 0.4);
+  assert.ok(target.hp < 10000);
+});
+
+test('combo feedback is limited to milestones with a two-second cooldown', () => {
+  const g = combat(); let displays = 0;
+  g.floatText = () => displays++;
+  for (let i = 0; i < 100; i++) g.registerCombo();
+  assert.equal(displays, 1);
+  g.elapsed += 2;
+  for (let i = 0; i < 25; i++) g.registerCombo();
+  assert.equal(displays, 2);
 });
