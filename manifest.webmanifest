@@ -1,0 +1,13 @@
+{
+  "name": "Les P'tits Lance-Pierres",
+  "short_name": "Lance-Pierres",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#f4c58e",
+  "theme_color": "#c8612b",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#c8612b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Les P'tits Lance-Pierres — un jeu de horde en 3D : recrute des enfants, améliore tes lance-pierres et repousse les fétiches." />
+  <title>Les P'tits Lance-Pierres</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <!-- world-anchored labels (plinth HP, army count) -->
+  <div id="labels"></div>
+  <div id="floats"></div>
+  <div id="bubble" class="bubble hidden">1</div>
+
+  <!-- in-game HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-row">
+      <div class="pill" id="level">Niveau 1</div>
+      <div class="progress"><div id="progress"></div></div>
+      <div class="pill coin"><span class="coin-ico"></span><span id="coins">0</span></div>
+      <button class="icon-btn" id="pauseBtn" aria-label="Pause">❚❚</button>
+    </div>
+    <div id="bossBar" class="boss hidden">
+      <div class="boss-name">Grand Fétiche</div>
+      <div class="boss-track"><div id="bossFill"></div></div>
+    </div>
+  </div>
+
+  <div id="banner" class="banner"><div class="b-title"></div><div class="b-sub"></div></div>
+
+  <div id="tutorial" class="tutorial hidden">
+    <div class="hand">👆</div>
+    <div class="tut-text">Glisse pour déplacer ta troupe</div>
+    <div class="tut-hint">Casse les socles ⟶ meilleurs lance-pierres · attrape les <b>+1</b></div>
+  </div>
+
+  <!-- menu -->
+  <div id="menu" class="screen">
+    <div class="menu-card">
+      <div class="logo">
+        <span class="l1">Les P'tits</span>
+        <span class="l2">Lance-Pierres</span>
+      </div>
+      <div class="menu-level" id="menuLevel">Niveau 1</div>
+      <button class="big-btn" id="playBtn">JOUER</button>
+      <div class="shop">
+        <div class="shop-title">Améliorations <span class="pill coin small"><span class="coin-ico"></span><span id="shopCoins">0</span></span></div>
+        <div class="shop-grid" id="shopGrid"></div>
+      </div>
+      <div class="menu-foot">
+        <button class="icon-btn" id="muteBtn" aria-label="Son">🔊</button>
+        <button class="link-btn" id="helpBtn">Comment jouer ?</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="help" class="screen hidden">
+    <div class="menu-card">
+      <h2>Comment jouer</h2>
+      <ul class="help-list">
+        <li><b>Glisse</b> (ou ← →) pour déplacer ta troupe entre les 3 couloirs. Les enfants tirent tout seuls.</li>
+        <li><b>À gauche</b> : casse les socles pour gagner de <b>meilleurs lance-pierres</b>, puis passe sous les tuiles <b>+1</b> pour recruter.</li>
+        <li><b>Au milieu</b> : la horde de fétiches descend. Chaque fétiche qui te touche emporte un enfant.</li>
+        <li><b>À droite</b> : le Gardien protège des renforts <b>géants</b>. Attention à ses rochers (cercle rouge) !</li>
+        <li>Bats le <b>Grand Fétiche</b> pour gagner. Dépense tes pièces en améliorations.</li>
+      </ul>
+      <button class="big-btn" id="helpClose">OK !</button>
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="menu-card">
+      <h2>Pause</h2>
+      <button class="big-btn" id="resumeBtn">Continuer</button>
+      <button class="big-btn alt" id="quitBtn">Menu</button>
+    </div>
+  </div>
+
+  <div id="end" class="screen hidden">
+    <div class="menu-card">
+      <h2 id="endTitle">Victoire !</h2>
+      <div class="end-sub" id="endSub"></div>
+      <div class="end-coins"><span class="coin-ico"></span>+<span id="endCoins">0</span></div>
+      <button class="big-btn" id="endBtn">Suivant</button>
+      <button class="big-btn alt" id="endMenu">Améliorations</button>
+    </div>
+  </div>
+
+  <noscript>Active JavaScript pour jouer.</noscript>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
