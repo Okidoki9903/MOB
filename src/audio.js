@@ -147,7 +147,9 @@ export class Sound {
   }
   win() {
     if (!this.ctx || this.muted) return;
-    [523, 659, 784, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.2, 1, i * 0.12));
+    [523, 659, 784, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.3, 'triangle', 0.16, 1, i * 0.12));
+    this.tone(131, 0.6, 'sine', 0.13, 1);
+    this.tone(262, 0.6, 'sine', 0.1, 1, 0.6);
   }
   lose() {
     if (!this.ctx || this.muted) return;
@@ -165,6 +167,33 @@ export class Sound {
   click() {
     if (!this.ctx || this.muted) return;
     this.tone(880, 0.06, 'sine', 0.15, 1.3);
+  }
+
+  missionStart() {
+    if (!this.gate('missionStart', 0.5)) return;
+    this.killVoice = 0;
+    this.tone(98, 0.3, 'sine', 0.18, 0.65);
+    [392, 494, 587].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.1, 1, 0.1 + i * 0.09));
+  }
+  wave(index = 0) {
+    if (!this.gate('wave', 0.4)) return;
+    const base = [196, 220, 246.94, 293.66][Math.abs(Math.floor(Number(index) || 0)) % 4];
+    this.tone(base, 0.22, 'triangle', 0.12, 1);
+    this.tone(base * 1.5, 0.18, 'triangle', 0.1, 1, 0.13);
+    this.noiseHit(0.09, 950, 1, 0.055, 'bandpass', 0.13);
+  }
+  eliteDown() {
+    if (!this.gate('eliteDown', 0.5)) return;
+    // One compact victory punctuation per elite, no sustained loop.
+    this.tone(130, 0.26, 'sine', 0.22, 0.4);
+    [587, 740, 880].forEach((f, i) => this.tone(f, 0.22, 'sine', 0.12, 1, 0.04 + i * 0.08));
+  }
+  threat(level = 0) {
+    if (level < 0.55 || !this.gate('threat', 1 / 2.8)) return;
+    // Sparse two-beat warning leaves room for hits and kills.
+    const volume = Math.min(0.18, 0.09 + Math.max(0, level) * 0.09);
+    this.tone(110, 0.1, 'triangle', volume, 0.7);
+    this.tone(98, 0.14, 'triangle', volume * 0.8, 0.65, 0.19);
   }
 
   setIntensity(value = 0) {

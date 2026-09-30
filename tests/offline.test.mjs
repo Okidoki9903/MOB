@@ -13,7 +13,7 @@ function worker() {
   const context = {
     URL, Response, fetch: async () => { throw Error('offline'); },
     self: { location: { origin: 'https://example.test' }, addEventListener: (name, fn) => handlers[name] = fn, skipWaiting: async () => {}, clients: { claim: async () => {} } },
-    caches: { open: async () => cache, keys: async () => ['plp-v3', 'plp-v4', 'another-app'], delete: async key => deleted.push(key) },
+    caches: { open: async () => cache, keys: async () => ['plp-v5', 'plp-v6', 'another-app'], delete: async key => deleted.push(key) },
   };
   vm.runInNewContext(source, context);
   return { handlers, stored, deleted, pending, event: { waitUntil: promise => pending.push(promise) } };
@@ -27,7 +27,7 @@ test('offline installation caches every local file and only removes old game cac
   assert.ok(w.stored.has('./src/game.js'));
   assert.ok(w.stored.has('./vendor/three.module.min.js'));
   w.handlers.activate(w.event); await Promise.all(w.pending);
-  assert.deepEqual(w.deleted, ['plp-v3']);
+  assert.deepEqual(w.deleted, ['plp-v5']);
 });
 test('offline navigation resolves query URLs to the cached app', async () => {
   const w = worker();

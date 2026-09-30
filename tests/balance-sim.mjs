@@ -14,16 +14,21 @@ const element = () => ({ style: {}, classList: { add: noop, remove: noop }, remo
 function seeded(seed) {
   return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let n = Math.imul(seed ^ seed >>> 15, 1 | seed); n = n + Math.imul(n ^ n >>> 7, 61 | n) ^ n; return ((n ^ n >>> 14) >>> 0) / 4294967296; };
 }
-export function simulate({ level = 1, bot = true, seed = 12345, duration = 300, upgrades = {}, dt = 1 / 60 } = {}) {
+export function simulate({ level = 1, bot = true, seed = 12345, duration = 300, upgrades = {}, doctrine = 'balanced', dt = 1 / 60 } = {}) {
   const originalRandom = Math.random;
   Math.random = seeded(seed);
   const game = Object.create(Game.prototype);
   const distances = [];
+  const phases = [];
+  const phase = () => {
+    const index = Math.floor((game.elapsed || 0) / 15);
+    return phases[index] ??= { start: index * 15, seconds: 0, nearSeconds: 0, peakNear: 0, hordeDamage: 0, kills: 0, closeKills: 0, killDistanceSum: 0 };
+  };
   let damageTaken = 0, hordeDamage = 0, guardianDamage = 0, peakNear = 0, nearSeconds = 0, peakEnemies = 0, outcome = 'timeout';
   try {
     Object.assign(game, {
       state: 'playing', opts: { bot }, keys: {},
-      save: { level, best: level, coins: 0, tutorialDone: true, up: { recruits: 0, power: 0, rate: 0, ...upgrades } },
+      save: { level, best: level, coins: 0, doctrine, tutorialDone: true, up: { recruits: 0, power: 0, rate: 0, ...upgrades } },
       scene: new THREE.Scene(), guardian: new THREE.Mesh(undefined, new THREE.MeshStandardMaterial()),
       slingMesh: {}, slingGeos: Array.from({ length: 5 }, () => new THREE.BufferGeometry()), bossMeshes: [],
       rockGeo: new THREE.IcosahedronGeometry(0.5), rockMat: new THREE.MeshBasicMaterial(), ringMat: new THREE.MeshBasicMaterial(),
@@ -39,16 +44,17 @@ export function simulate({ level = 1, bot = true, seed = 12345, duration = 300, 
       },
       win() { this.ended = true; outcome = 'win'; },
       lose() { this.ended = true; outcome = 'lose'; },
-      loseUnits(n, x, z) { damageTaken += Math.min(n, this.army.count); return Game.prototype.loseUnits.call(this, n, x, z); },
-      updateEnemies(dt) { const before = damageTaken; Game.prototype.updateEnemies.call(this, dt); hordeDamage += damageTaken - before; },
+      loseUnits(n, x, z) { const before = this.army.count; Game.prototype.loseUnits.call(this, n, x, z); damageTaken += before - this.army.count; },
+      updateEnemies(dt) { const before = damageTaken; Game.prototype.updateEnemies.call(this, dt); hordeDamage += damageTaken - before; phase().hordeDamage += damageTaken - before; },
       updateRocks(dt) { const before = damageTaken; Game.prototype.updateRocks.call(this, dt); guardianDamage += damageTaken - before; },
-      killEnemy(i) { const e = this.enemies[i]; distances.push(Math.hypot(e.x - this.army.x, e.z)); return Game.prototype.killEnemy.call(this, i); },
+      killEnemy(i) { const e = this.enemies[i]; const distance = Math.hypot(e.x - this.army.x, e.z); distances.push(distance); const p = phase(); p.kills++; p.killDistanceSum += distance; if (distance < 10) p.closeKills++; return Game.prototype.killEnemy.call(this, i); },
     });
     game.prepareLevel(level);
     const steps = Math.ceil(duration / dt);
     for (let step = 0; step < steps && !game.ended; step++) {
       game.update(dt);
       const near = game.enemies.filter(e => e.z > -8).length;
+      const p = phase(); p.seconds += dt; if (near >= 8) p.nearSeconds += dt; p.peakNear = Math.max(p.peakNear, near);
       peakNear = Math.max(peakNear, near);
       if (near) nearSeconds += dt;
       peakEnemies = Math.max(peakEnemies, game.enemies.length);
@@ -62,6 +68,7 @@ export function simulate({ level = 1, bot = true, seed = 12345, duration = 300, 
       killDistanceMean: round(distances.reduce((a, b) => a + b, 0) / (distances.length || 1)),
       killDistanceP90: round(sorted[Math.floor((sorted.length - 1) * .9)] || 0),
       killDistanceMax: round(sorted.at(-1) || 0), killsBeyond30: distances.filter(n => n > 30).length,
+      phases: phases.filter(Boolean).map(({ killDistanceSum, ...p }) => ({ ...p, seconds: round(p.seconds), nearSeconds: round(p.nearSeconds), killDistanceMean: round(killDistanceSum / (p.kills || 1)) })),
     };
   } finally { Math.random = originalRandom; }
 }

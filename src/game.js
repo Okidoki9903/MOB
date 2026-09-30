@@ -3,6 +3,13 @@ import * as M from './models.js';
 import { Sound } from './audio.js';
 import { REVEAL_Z, upgradeAvailable, emergence } from './presentation.js';
 
+function uploadActive(attribute, count) {
+  if (!attribute || count <= 0) return;
+  attribute.clearUpdateRanges();
+  attribute.addUpdateRange(0, Math.min(count, attribute.count) * attribute.itemSize);
+  attribute.needsUpdate = true;
+}
+
 // ------------------------------------------------------------------ layout
 const LANES = { left: -4.2, mid: 0, right: 4.2 };
 const WALLS = [-6.35, -2.1, 2.1, 6.35];
@@ -27,12 +34,17 @@ export const WEAPONS = [
   { name: 'Lance-pierre renforcé', dmg: 2, rate: 1.45, splash: 0, stone: 0x8fa6c0, size: 0.095, speed: 28 },
   { name: "Lance-pierre d'or", dmg: 3.5, rate: 1.65, splash: 0, stone: 0xffd23a, size: 0.105, speed: 30 },
   { name: 'Pierres de feu', dmg: 6, rate: 1.85, splash: 0.9, stone: 0xff6a1f, size: 0.12, speed: 30 },
-  { name: 'Calebasse tonnerre', dmg: 13, rate: 1.3, splash: 1.9, stone: 0xffe066, size: 0.12, speed: 24 },
+  { name: 'Calebasse tonnerre', dmg: 8, rate: 1.5, splash: 1.9, stone: 0xffe066, size: 0.12, speed: 24 },
 ];
 
 // Monster families. hp is a multiplier of the wave's base hp.
 // Four times the previous fivefold hordes; excess troops wait in the reinforcement queue.
 export const HORDE_MULTIPLIER = 20;
+export const DOCTRINES = [
+  { id: 'balanced', label: 'Onde', description: 'Frappe et repousse à 12 m. Cadence +60 % pendant 4 s.', hint: 'Repousse et frappe la horde', name: 'Onde des ancêtres', duration: 4, rate: 1.6, damage: 1, knockback: 7, cooldown: 16, shield: 0 },
+  { id: 'bastion', label: 'Bastion', description: 'Absorbe 8 pertes pendant 4 s. Onde affaiblie, recharge de 20 s.', hint: 'Protège jusqu’à 8 enfants pendant 4 s', name: 'Bouclier du village', duration: 4, rate: 1.15, damage: 0.35, knockback: 2, cooldown: 20, shield: 8 },
+  { id: 'assault', label: 'Assaut', description: 'Cadence +140 % pendant 2,5 s. Aucune onde ni protection.', hint: 'Cadence +140 % pendant 2,5 s', name: 'Salve du tonnerre', duration: 2.5, rate: 2.4, damage: 0, knockback: 0, cooldown: 18, shield: 0 },
+];
 
 export const ETYPES = {
   imp: { name: 'Fétiche', hp: 1, speed: 2.6, power: 1, r: 0.34, scale: 1.15, coin: 1, max: 520, freq: 9, anim: { amp: 0.7, bob: 0.06 } },
@@ -64,7 +76,7 @@ export function upgradeCost(key, lvl) {
 function waveMix(L, w) {
   const mix = { imp: 1 };
   if (L >= 1 && w >= 1) mix.hyena = 0.35 + 0.05 * L;
-  if (L >= 2 && w >= 2) mix.brute = 0.08 + 0.01 * L;
+  if (w >= 2) mix.brute = [0, 0, 0.12, 0.35, 0.6][w] + 0.01 * L;
   if (L >= 3 && w >= 1) mix.vulture = 0.18 + 0.02 * L;
   return mix;
 }
@@ -90,8 +102,25 @@ export function makeLevel(L) {
     { t: 29, n: 45 + 14 * L, hp: 6 * e },
     { t: 43, n: 60 + 18 * L, hp: 10 * e },
     { t: 58, n: 50 + 16 * L, hp: 14 * e, boss: Math.round(5000 * Math.pow(1.28, n)) },
-  ].map((w, i) => ({ ...w, n: w.n * HORDE_MULTIPLIER, hp: w.hp * 1.25, mix: waveMix(L, i) }));
-  return { left, right, waves, L, boss: BOSSES[n % BOSSES.length] };
+  ].map((w, i) => ({ ...w, n: w.n * HORDE_MULTIPLIER, hp: w.hp * 1.25 * (L === 1 ? 0.65 : 1) * [1, 2, 2.2, 3.5, 4.5][i], pressure: i, mix: waveMix(L, i) }));
+  const missions = [
+    { id: 'breakthrough', title: 'La percée', brief: 'Ouvre les voies, forme ta troupe et repousse toutes les vagues.', objective: 'Vaincre la horde et son chef', target: 1, modifier: 'Assauts alternés et buffles blindés en fin de mission' },
+    { id: 'survival', title: 'Le dernier rempart', brief: 'Gagne du temps pour évacuer le village. Tu peux réussir même si des ennemis restent.', objective: 'Tenir jusqu’à l’évacuation', target: 90 + Math.min(15, n), modifier: 'Renforts plus rapides ; victoire au terme du compte à rebours' },
+    { id: 'hunt', title: 'Les trois champions', brief: 'Trois chefs prennent la relève. Concentre tes tirs sur les grandes silhouettes.', objective: 'Vaincre les 3 champions', target: 3, modifier: 'Trois boss successifs ; leur élimination termine la mission' },
+    { id: 'rescue', title: 'Le convoi des enfants', brief: 'Traverse les voies pour récupérer les recrues puis tiens jusqu’à l’extraction.', objective: 'Recruter 120 enfants et tenir 80 s', target: 120, modifier: 'Les recrues restent comptées même si tu subis des pertes' },
+    { id: 'sanctuary', title: 'Briser le sanctuaire', brief: 'Le gardien de droite protège le chef. Détruis les deux pour libérer le village.', objective: 'Vaincre le gardien et le chef', target: 2, modifier: 'La voie du gardien est un objectif obligatoire' },
+  ];
+  const mission = { ...missions[n % missions.length] };
+  mission.name = mission.title;
+  mission.description = mission.brief;
+  if (mission.id === 'hunt') {
+    const baseBoss = waves[4].boss;
+    for (const [index, factor] of [[1, 0.18], [3, 0.28], [4, 0.4]]) {
+      waves[index].boss = Math.round(baseBoss * factor);
+      waves[index].bossType = (n + [1, 3, 4].indexOf(index)) % BOSSES.length;
+    }
+  }
+  return { left, right, waves, L, mission, boss: BOSSES[n % BOSSES.length] };
 }
 
 // ------------------------------------------------------------------ helpers
@@ -153,14 +182,14 @@ export class Game {
 
   // ---------------------------------------------------------------- save
   loadSave() {
-    const def = { level: 1, coins: 0, best: 1, up: { recruits: 0, power: 0, rate: 0 } };
+    const def = { level: 1, coins: 0, best: 1, doctrine: 'balanced', up: { recruits: 0, power: 0, rate: 0 } };
     try {
       const s = JSON.parse(localStorage.getItem('pl_save') || 'null');
       if (s && typeof s === 'object' && !Array.isArray(s)) {
         const up = {};
         for (const key of Object.keys(UPGRADES)) up[key] = Math.floor(boundedNumber(s.up?.[key], 0, 0, UPGRADES[key].max));
         const level = Math.floor(boundedNumber(s.level, 1, 1, MAX_LEVEL));
-        return { level, coins: Math.floor(boundedNumber(s.coins, 0, 0, Number.MAX_SAFE_INTEGER)), best: Math.max(level, Math.floor(boundedNumber(s.best, 1, 1, MAX_LEVEL))), up, tutorialDone: s.tutorialDone === true };
+        return { level, coins: Math.floor(boundedNumber(s.coins, 0, 0, Number.MAX_SAFE_INTEGER)), best: Math.max(level, Math.floor(boundedNumber(s.best, 1, 1, MAX_LEVEL))), doctrine: level >= 2 && DOCTRINES.some(d => d.id === s.doctrine) ? s.doctrine : 'balanced', up, tutorialDone: s.tutorialDone === true };
       }
     } catch (e) { /* ignore */ }
     return def;
@@ -171,7 +200,8 @@ export class Game {
 
   // ---------------------------------------------------------------- setup
   initRenderer() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
+    const dpr = Math.min(window.devicePixelRatio || 1, this.mobile ? 1.5 : 2);
     this.dpr = dpr;
     const r = new THREE.WebGLRenderer({ antialias: dpr < 1.5, powerPreference: 'high-performance' });
     r.setPixelRatio(dpr);
@@ -182,7 +212,6 @@ export class Game {
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(r.domElement);
     this.renderer = r;
-    this.mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
   }
 
   initScene() {
@@ -392,7 +421,10 @@ export class Game {
 
     const geos = { imp: M.impGeometry(false), hyena: M.hyenaGeometry(false), brute: M.bruteGeometry(false), vulture: M.vultureGeometry() };
     this.enemyMeshes = {};
-    for (const k of TYPE_KEYS) this.enemyMeshes[k] = this.animatedMesh(geos[k], ETYPES[k].max + 60, ETYPES[k].anim);
+    for (const k of TYPE_KEYS) {
+      this.enemyMeshes[k] = this.animatedMesh(geos[k], ETYPES[k].max + 60, ETYPES[k].anim);
+      this.enemyMeshes[k].castShadow = !this.mobile;
+    }
 
     this.bossMeshes = BOSSES.map((b) => {
       const m = this.animatedMesh(b.geo(), 1, ETYPES[b.type].anim);
@@ -552,9 +584,14 @@ export class Game {
     this.enemies = [];
     this.reinforcements = [];
     this.spawnClock = 0;
+    this.spawnTurn = 0;
     this.dying = [];
     this.boss = null;
     this.bossDefeated = false;
+    this.bossQueue = [];
+    this.bossesDefeated = 0;
+    this.guardianDefeated = false;
+    this.recruited = 0;
     this.bossDef = lv.boss;
     this.ui.bossName.textContent = lv.boss.name;
     this.waveIdx = 0;
@@ -662,6 +699,8 @@ export class Game {
     this.state = 'playing';
     this.clock.getDelta();
     this.ui.onState('playing');
+    this.sound.missionStart?.();
+    this.ui.banner(this.level.mission.title, this.level.mission.objective);
     if (this.level.L === 1 && !this.save.tutorialDone) this.ui.tutorial(true);
   }
   pause() {
@@ -734,7 +773,7 @@ export class Game {
   }
 
   runStats() {
-    return { kills: this.kills, bestCombo: this.bestCombo, duration: Math.round(this.elapsed), peakArmy: this.peakArmy };
+    return { kills: this.kills, bestCombo: this.bestCombo, duration: Math.round(this.elapsed), peakArmy: this.peakArmy, ...(this.level?.mission ? { missionTitle: this.level.mission.title } : {}) };
   }
 
   registerCombo() {
@@ -750,29 +789,44 @@ export class Game {
 
   activateAbility() {
     if (this.state !== 'playing' || this.ended || this.ability.cooldown > 0) return false;
-    this.ability.cooldown = this.ability.totalCooldown;
-    this.ability.duration = 4;
-    this.abilityPulse = 0.65;
+    const doctrine = this.combatDoctrine();
+    this.ability.totalCooldown = doctrine.cooldown;
+    this.ability.cooldown = doctrine.cooldown;
+    this.ability.duration = doctrine.duration;
+    this.ability.shield = doctrine.shield;
+    this.abilityPulse = doctrine.id === 'assault' ? 0 : 0.65;
     this.abilityX = this.army.x;
     this.shake = Math.max(this.shake, 0.45);
     this.sound.shield?.();
-    this.burst(this.army.x, 0.3, ARMY_Z, 0x75ffe0, 36, 10, 0.16, 4);
-    const damage = WEAPONS[this.tier].dmg * this.dmgMult * Math.max(5, Math.sqrt(this.army.count) * 2);
+    this.burst(this.army.x, 0.3, ARMY_Z, doctrine.id === 'assault' ? 0xffd466 : 0x75ffe0, doctrine.id === 'assault' ? 14 : 36, 10, 0.16, 4);
+    const damage = WEAPONS[this.tier].dmg * this.dmgMult * Math.max(5, Math.sqrt(this.army.count) * 2) * doctrine.damage;
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
-      if (Math.hypot(e.x - this.army.x, e.z - ARMY_Z) > 12) continue;
+      if (!doctrine.damage || Math.hypot(e.x - this.army.x, e.z - ARMY_Z) > 12) continue;
       this.damageEnemy(e, damage);
-      e.kb = 7;
-      e.z -= 1.4;
+      e.kb = doctrine.knockback;
+      e.z -= doctrine.id === 'balanced' ? 1.4 : 0.4;
       if (e.hp <= 0) this.killEnemy(i);
     }
-    if (this.boss && Math.hypot(this.boss.x - this.army.x, this.boss.z - ARMY_Z) <= 12) this.damageEnemy(this.boss, damage * 3);
-    this.ui.banner('ONDE DES ANCÊTRES', 'Repousse la horde · cadence +60% pendant 4 s');
-    this.updateHud();
+    if (damage && this.boss && Math.hypot(this.boss.x - this.army.x, this.boss.z - ARMY_Z) <= 12) this.damageEnemy(this.boss, damage * 3);
+    this.ui.banner(doctrine.name.toUpperCase(), doctrine.hint);
+    this.updateHud(true);
     return true;
   }
 
   // ---------------------------------------------------------------- army
+  combatDoctrine() {
+    const unlocked = (this.level?.L ?? this.save?.level ?? 1) >= 2;
+    return (unlocked && DOCTRINES.find(d => d.id === this.save?.doctrine)) || DOCTRINES[0];
+  }
+
+  setDoctrine(id) {
+    if (!['menu', 'win', 'lose'].includes(this.state) || this.save.level < 2 || !DOCTRINES.some(d => d.id === id)) return false;
+    this.save.doctrine = id;
+    this.writeSave();
+    return true;
+  }
+
   slot(i) {
     const r = KID_SPACING * Math.sqrt(i + 0.3);
     const a = i * 2.39996;
@@ -805,6 +859,7 @@ export class Game {
   }
 
   addUnits(n, x, z) {
+    this.recruited = (this.recruited || 0) + n;
     this.army.count += n;
     this.peakArmy = Math.max(this.peakArmy, this.army.count);
     this.syncKids(false, x, z);
@@ -812,6 +867,12 @@ export class Game {
 
   loseUnits(n, fromX = null, fromZ = null) {
     if (n <= 0 || this.army.count <= 0) return;
+    if (this.ability?.duration > 0 && this.ability.shield > 0) {
+      const absorbed = Math.min(n, this.ability.shield);
+      this.ability.shield -= absorbed;
+      n -= absorbed;
+      if (!n) return;
+    }
     this.combo = 0;
     this.comboTime = 0;
     this.army.count = Math.max(0, this.army.count - n);
@@ -833,7 +894,7 @@ export class Game {
   // ---------------------------------------------------------------- fx
   burst(x, y, z, color, n = 8, speed = 4, size = 0.12, grav = 12) {
     for (let i = 0; i < n; i++) {
-      if (this.parts.length >= MAX_PART) this.parts.shift();
+      if (this.parts.length >= (this.mobile ? 450 : MAX_PART)) this.parts.shift();
       const a = Math.random() * 6.283;
       const s = speed * (0.4 + Math.random() * 0.8);
       this.parts.push({
@@ -923,6 +984,7 @@ export class Game {
       if (next - this.time > 3) this.time = next - 3;
     }
 
+    if (!this.boss && this.bossQueue.length) this.spawnBoss(this.bossQueue.shift());
     this.updateReinforcements(dt);
     this.updateKids(dt);
     this.updateProjectiles(dt);
@@ -931,14 +993,14 @@ export class Game {
     this.updateGuardian(dt);
     this.updateRocks(dt);
 
-    if (!this.ended && this.waveIdx >= lv.waves.length && this.enemies.length === 0 && this.reinforcements.length === 0 && this.bossDefeated) this.win();
+    if (!this.ended && this.objectiveComplete()) this.win();
     this.updateHud();
   }
 
   updateKids(dt) {
     const W = WEAPONS[this.tier];
-    const interval = 1 / (W.rate * this.rateMult * (this.ability.duration > 0 ? 1.6 : 1));
-    const mult = this.army.count / Math.max(1, this.kids.length);
+    const interval = 1 / (W.rate * this.rateMult * (this.ability.duration > 0 ? this.combatDoctrine().rate : 1));
+    const mult = Math.sqrt(this.army.count / Math.max(1, this.kids.length));
     const dmg = W.dmg * this.dmgMult * mult;
     const aim = this.findPlazaTarget();
     let fired = 0;
@@ -1089,6 +1151,7 @@ export class Game {
     if (r > 1.5) { this.sound.boom(); this.burst(p.x, 0.6, p.z, 0xffffff, 4, 6, 0.08); }
     const cx = Math.floor(p.x / cell), cz = Math.floor(p.z / cell);
     const n = Math.ceil(r / cell);
+    let affected = 0;
     for (let ox = -n; ox <= n; ox++) for (let oz = -n; oz <= n; oz++) {
       const b = grid.get(((cx + ox + 64) << 10) | (cz + oz + 512));
       if (!b) continue;
@@ -1097,8 +1160,9 @@ export class Game {
         const dx = p.x - e.x, dz = p.z - e.z;
         if (dx * dx + dz * dz < r * r) {
           const falloff = 1 - Math.hypot(dx, dz) / r;
-          this.damageEnemy(e, p.dmg * (0.2 + 0.4 * falloff));
+          this.damageEnemy(e, p.dmg * (0.2 + 0.4 * falloff) * (e.type === 'brute' ? 0.25 : 1));
           e.kb = Math.min(0.4, e.kb + 0.12 / e.mass);
+          if (++affected >= 4) return;
         }
       }
     }
@@ -1112,6 +1176,8 @@ export class Game {
     this.sound.hit();
     if (e.isBoss && e.hp <= 0 && !this.bossDefeated) {
       this.bossDefeated = true;
+      this.bossesDefeated = (this.bossesDefeated || 0) + 1;
+      this.sound.eliteDown?.();
       this.boss = null;
       this.ui.bossBar.classList.add('hidden');
       this.kills++;
@@ -1140,7 +1206,13 @@ export class Game {
   }
 
   pushDying(e, force) {
-    if (this.dying.length > 260) this.dying.shift();
+    const limit = this.mobile ? 80 : 260;
+    if (this.dying.length >= limit) {
+      // Preserve boss death animations and favour kills closest to the player.
+      let farthest = -1;
+      for (let i = 0; i < this.dying.length; i++) if (this.dying[i].boss === undefined && (farthest < 0 || this.dying[i].z < this.dying[farthest].z)) farthest = i;
+      if (farthest >= 0) this.dying.splice(farthest, 1);
+    }
     this.dying.push({
       type: e.type, x: e.x, y: e.y, z: e.z,
       vx: (Math.random() - 0.5) * 3 * force, vy: 3 + Math.random() * 3, vz: -(2 + Math.random() * 3) * force,
@@ -1180,6 +1252,7 @@ export class Game {
           for (const k of this.kids) this.burst(k.x, 1.3, k.z, 0xffd23a, 1, 3, 0.08);
         }
       } else {
+        this.guardianDefeated = true;
         this.earned += 30; this.save.coins += 30;
         this.floatText('+30', x, 4, it.z, 'coin');
         this.ui.banner('Gardien vaincu !', 'Les renforts arrivent');
@@ -1257,46 +1330,79 @@ export class Game {
     this.reinforcements.push({ wave: w, remaining: w.n });
     if (w.mix.hyena && this.waveIdx > 0) this.sound.laugh();
     if (w.mix.brute) this.sound.roar();
+    this.sound.wave?.(this.waveIdx + 1);
     if (w.boss) {
-      const B = this.bossDef;
-      const bi = BOSSES.indexOf(B);
-      this.boss = {
-        type: B.type, isBoss: true, bossIdx: bi, x: 0, y: 0, z: SPAWN_Z + 1.5, hp: w.boss, maxHp: w.boss,
-        flash: 0, speed: B.speed, phase: 0, atk: 0, scale: B.scale, r: 0.42 * B.scale, kb: 0, mass: 99,
-      };
-      this.ui.banner(B.name + ' arrive !', 'Tiens bon au milieu');
-      this.ui.bossBar.classList.remove('hidden');
-      this.sound.boss?.();
-      this.sound.roar();
+      this.bossQueue.push(w);
     } else if (this.waveIdx === 0) {
       this.ui.banner('La horde arrive !', 'Vise le couloir du milieu');
     }
+  }
+
+  spawnBoss(w) {
+    const B = w.bossType === undefined ? this.bossDef : BOSSES[w.bossType];
+    const bi = BOSSES.indexOf(B);
+    this.bossDefeated = false;
+    this.boss = {
+      type: B.type, isBoss: true, bossIdx: bi, x: 0, y: 0, z: this.level.mission.id === 'hunt' && w.pressure >= 3 ? -40 : SPAWN_Z + 1.5, hp: w.boss, maxHp: w.boss,
+      flash: 0, speed: B.speed, phase: 0, atk: 0, scale: B.scale, r: 0.42 * B.scale, kb: 0, mass: 99,
+    };
+    this.ui.bossName.textContent = B.name;
+    this.ui.banner(B.name + ' arrive !', this.level.mission.objective);
+    this.ui.bossBar.classList.remove('hidden');
+    this.sound.boss?.();
+    this.sound.roar();
+  }
+
+  objectiveComplete() {
+    const mission = this.level.mission;
+    if (mission.id === 'survival') return this.elapsed >= mission.target && this.army.count > 0;
+    if (mission.id === 'hunt') return this.bossesDefeated >= mission.target;
+    if (mission.id === 'rescue') return this.recruited >= mission.target && this.elapsed >= 80 && this.army.count > 0;
+    if (mission.id === 'sanctuary') return this.guardianDefeated && this.bossesDefeated > 0;
+    return this.waveIdx >= this.level.waves.length && this.enemies.length === 0 && this.reinforcements.length === 0 && this.bossQueue.length === 0 && this.bossDefeated;
+  }
+
+  missionStatus() {
+    const m = this.level.mission;
+    let progress, text;
+    if (m.id === 'survival') { progress = this.elapsed / m.target; text = 'Évacuation dans ' + Math.max(0, Math.ceil(m.target - this.elapsed)) + ' s'; }
+    else if (m.id === 'hunt') { progress = this.bossesDefeated / m.target; text = this.bossesDefeated + ' / ' + m.target + ' champions vaincus'; }
+    else if (m.id === 'rescue') { progress = Math.min(this.recruited / m.target, this.elapsed / 80); text = Math.min(this.recruited, m.target) + ' / ' + m.target + ' recrues · extraction ' + Math.max(0, Math.ceil(80 - this.elapsed)) + ' s'; }
+    else if (m.id === 'sanctuary') { progress = ((this.guardianDefeated ? 1 : 0) + (this.bossesDefeated > 0 ? 1 : 0)) / 2; text = 'Gardien ' + (this.guardianDefeated ? '✓' : 'à vaincre') + ' · Chef ' + (this.bossesDefeated > 0 ? '✓' : 'à vaincre'); }
+    else { progress = this.resolved / this.totalEnemies; text = this.resolved + ' / ' + this.totalEnemies + ' ennemis repoussés'; }
+    return { missionTitle: m.title, objectiveText: text, objectiveProgress: clamp(progress, 0, 1), missionProgress: { label: text, current: Math.round(clamp(progress, 0, 1) * 100), target: 100 } };
   }
 
   updateReinforcements(dt) {
     if (!this.reinforcements.length) { this.spawnClock = 0; return; }
     this.spawnClock -= dt;
     if (this.spawnClock > 0) return;
-    // Give early recruits time to arrive before the sustained late-wave assault.
-    this.spawnClock = this.waveIdx < 3 ? 0.28 : 0.06;
+    this.spawnTurn = (this.spawnTurn || 0) + 1;
+    const interval = this.elapsed >= 60 ? 3 : 6;
+    const batchIndex = this.elapsed >= 40 && this.spawnTurn % interval === 0 ? this.reinforcements.length - 1 : 0;
+    const batch = this.reinforcements[batchIndex], w = batch.wave;
+    const pressure = w.pressure ?? Math.max(0, this.waveIdx - 1);
+    if (pressure >= 2 && this.elapsed % 10 >= 7.5) { this.spawnClock = 0.1; return; }
+    this.spawnClock = pressure === 0 ? 0.28 : pressure === 1 ? 0.16 : 0.06;
     const counts = {};
     for (const e of this.enemies) counts[e.type] = (counts[e.type] || 0) + 1;
-    const batch = this.reinforcements[0], w = batch.wave;
-    for (let col = 0; col < (this.waveIdx < 3 ? 6 : 18) && batch.remaining > 0; col++) {
-      const type = pick(w.mix), T = ETYPES[type];
-      if ((counts[type] || 0) >= T.max) break;
+    for (let col = 0; col < (pressure < 2 ? 6 : 18) && batch.remaining > 0; col++) {
+      const available = {};
+      for (const [key, weight] of Object.entries(w.mix)) if ((counts[key] || 0) < ETYPES[key].max) available[key] = weight;
+      if (!Object.keys(available).length) break;
+      const type = pick(available), T = ETYPES[type];
       counts[type] = (counts[type] || 0) + 1;
       this.enemies.push({
         type, fly: !!T.fly, r: T.r, mass: T.hp > 2 ? 3 : 1, power: T.power, scale: T.scale,
         x: ((col % 6) - 2.5) * 0.5 + (Math.random() - 0.5) * 0.2,
-        z: (this.waveIdx < 3 ? SPAWN_Z : -32) - Math.floor(col / 6) * 0.6 - Math.random() * 0.3,
+        z: (pressure === 0 ? SPAWN_Z : pressure === 1 ? -44 : -32) - Math.floor(col / 6) * 0.6 - Math.random() * 0.3,
         y: T.fly ? 2.4 : 0, hp: w.hp * T.hp, flash: 0, kb: 0, vx: 0, vz: 0,
-        phase: Math.random() * 6.28, speed: T.speed * (0.92 + Math.random() * 0.16),
+        phase: Math.random() * 6.28, speed: T.speed * (this.level?.mission?.id === 'survival' ? 1.08 : 1) * (0.92 + Math.random() * 0.16),
         ox: Math.random() - 0.5, oz: Math.random() - 0.5,
       });
       batch.remaining--;
     }
-    if (!batch.remaining) this.reinforcements.shift();
+    if (!batch.remaining) this.reinforcements.splice(batchIndex, 1);
   }
 
   updateEnemies(dt) {
@@ -1446,7 +1552,7 @@ export class Game {
   // ---------------------------------------------------------------- bot
   botThink() {
     const lanes = this.lanes;
-    const threat = this.enemies.some((e) => e.z > -7) || (this.boss && this.boss.z > -18);
+    const threat = this.enemies.some((e) => e.z > -5) || (this.boss && this.boss.z > -18);
     const leftBlock = this.frontBlocker(lanes[0]);
     const leftTiles = lanes[0].items.some((it) => it.kind !== 'gate' && !it.collected && it.z > -20);
     const guardian = lanes[1].items.find((it) => it.kind === 'guardian');
@@ -1454,7 +1560,7 @@ export class Game {
     let tx = 0;
     if (threat) tx = 0;
     else if (leftBlock || leftTiles) tx = LANES.left;
-    else if (guardian && this.tier >= 3) tx = LANES.right - 0.8;
+    else if (guardian && this.tier >= (this.level.mission.id === 'hunt' ? 4 : 3)) tx = LANES.right - 0.8;
     else if (!guardian && rightTiles) tx = LANES.right;
     if (this.enemies.filter((e) => e.z > -10).length > 8 || (this.boss && this.boss.z > -10)) this.activateAbility();
     this.army.targetX = tx;
@@ -1463,13 +1569,16 @@ export class Game {
 
   // ---------------------------------------------------------------- hud
   updateHud(force) {
+    const now = performance.now();
+    if (!force && now - (this.lastHudUpdate || 0) < 100) return;
+    this.lastHudUpdate = now;
     const u = this.ui;
     if (force || this._c !== this.army.count) { this._c = this.army.count; u.count.textContent = fmt(this.army.count); }
     if (force || this._coins !== this.save.coins) { this._coins = this.save.coins; u.coins.textContent = fmt(this.save.coins); }
     if (force || this._lvl !== this.level.L) { this._lvl = this.level.L; u.level.textContent = 'Niveau ' + this.level.L; }
     const nextWave = this.level.waves[this.waveIdx];
     const threatCount = this.enemies.reduce((n, e) => n + (e.z > -8 ? 1 : 0), 0);
-    u.updateCombat?.({ enemyCount: this.enemies.length, threatCount, threatLevel: clamp(threatCount / 30, 0, 1), kills: this.kills, combo: this.combo, bestCombo: this.bestCombo, wave: this.waveIdx, waves: this.level.waves.length, nextWave: nextWave ? Math.max(0, Math.ceil(nextWave.t - this.time)) : null, abilityReady: this.ability.cooldown <= 0, abilityCooldown: Math.ceil(this.ability.cooldown), abilityActive: this.ability.duration > 0, abilityProgress: 1 - this.ability.cooldown / this.ability.totalCooldown, elapsed: this.elapsed, peakArmy: this.peakArmy });
+    u.updateCombat?.({ ...this.missionStatus(), abilityName: this.combatDoctrine().name, abilityHint: this.combatDoctrine().hint, enemyCount: this.enemies.length, threatCount, threatLevel: clamp(threatCount / 30, 0, 1), kills: this.kills, combo: this.combo, bestCombo: this.bestCombo, wave: this.waveIdx, waves: this.level.waves.length, nextWave: nextWave ? Math.max(0, Math.ceil(nextWave.t - this.time)) : null, abilityReady: this.ability.cooldown <= 0, abilityCooldown: Math.ceil(this.ability.cooldown), abilityActive: this.ability.duration > 0, abilityProgress: 1 - this.ability.cooldown / this.ability.totalCooldown, elapsed: this.elapsed, peakArmy: this.peakArmy });
     this.sound.setIntensity?.(this.boss ? 1 : Math.min(0.85, this.enemies.length / 100));
     u.progress.style.width = (Math.min(1, this.resolved / this.totalEnemies) * 100) + '%';
   }
@@ -1525,8 +1634,8 @@ export class Game {
       n++;
     }
     km.count = n;
-    km.instanceMatrix.needsUpdate = sm.instanceMatrix.needsUpdate = true;
-    phase.needsUpdate = amt.needsUpdate = shot.needsUpdate = true;
+    uploadActive(km.instanceMatrix, km.count); uploadActive(sm.instanceMatrix, sm.count);
+    uploadActive(phase, n); uploadActive(amt, n); uploadActive(shot, n);
   }
 
   renderEnemies() {
@@ -1554,9 +1663,8 @@ export class Game {
     for (const k of TYPE_KEYS) {
       const m = this.enemyMeshes[k];
       m.count = Math.min(counts[k], m.instanceMatrix.count);
-      m.instanceMatrix.needsUpdate = true;
-      m.instanceColor.needsUpdate = true;
-      m.userData.phase.needsUpdate = m.userData.amt.needsUpdate = true;
+      uploadActive(m.instanceMatrix, m.count); uploadActive(m.instanceColor, m.count);
+      uploadActive(m.userData.phase, m.count); uploadActive(m.userData.amt, m.count);
     }
     // boss
     this.bossMeshes.forEach((m) => { m.count = 0; });
@@ -1592,7 +1700,7 @@ export class Game {
     }
     for (const m of Object.values(this.tileMeshes)) {
       m.count = Math.min(90, m.userData.n);
-      m.instanceMatrix.needsUpdate = true;
+      uploadActive(m.instanceMatrix, m.count);
     }
   }
 
@@ -1613,8 +1721,7 @@ export class Game {
       pm.setColorAt(i, tmpC.set(p.color));
     }
     pm.count = this.proj.length;
-    pm.instanceMatrix.needsUpdate = true;
-    if (pm.instanceColor) pm.instanceColor.needsUpdate = true;
+    uploadActive(pm.instanceMatrix, pm.count); uploadActive(pm.instanceColor, pm.count);
 
     const P = this.parts, qm = this.partMesh;
     let n = 0;
@@ -1631,8 +1738,7 @@ export class Game {
       n++;
     }
     qm.count = n;
-    qm.instanceMatrix.needsUpdate = true;
-    if (qm.instanceColor) qm.instanceColor.needsUpdate = true;
+    uploadActive(qm.instanceMatrix, n); uploadActive(qm.instanceColor, n);
   }
 
   renderAmbient(t, dt) {

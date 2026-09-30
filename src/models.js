@@ -351,7 +351,9 @@ export function impGeometry(boss = false) {
   b.add(Cyl(0.018, 0.018, 1.05, 8), PAL.wood, [0.32, 0.6, 0.12]);
   b.add(Sph(0.05, 10, 8), 0xd6d9de, [0.32, 1.18, 0.12], [0, 0, 0], [0.7, 2, 0.35]);
   if (boss) {
-    for (const sx of [-1, 1]) b.add(Sph(0.1, 14, 10), 0xffc53a, [sx * 0.28, 0.66, 0], [0, 0, 0], [1, 0.7, 1]);
+    // Broad faceted shoulder plates read better at phone scale than tiny ornament.
+    for (const sx of [-1, 1]) b.add(new THREE.OctahedronGeometry(0.13, 0), 0xffd77b, [sx * 0.27, 0.66, 0], [0, 0, sx * 0.2], [1.2, 0.65, 1.2]);
+    b.add(new THREE.OctahedronGeometry(0.08, 0), 0xffe9a5, [0, 0.53, 0.215], [0, 0, 0], [1.1, 1.3, 0.3]);
     b.add(new THREE.TorusGeometry(0.17, 0.035, 8, 20), 0xffc53a, [0, 0.66, 0], [Math.PI / 2, 0, 0]);
     for (let i = 0; i < 5; i++) {
       const a = (i - 2) * 0.35;
@@ -391,6 +393,7 @@ export function hyenaGeometry(boss = false) {
   }
   b.add(Horn([[0, 0.62, -0.38], [0, 0.55, -0.52], [0, 0.4, -0.58]], 0.05, 0.02), dark);
   if (boss) {
+    for (const sx of [-1, 1]) b.add(new THREE.OctahedronGeometry(0.12, 0), 0xffd77b, [sx * 0.15, 0.66, 0.23], [0, 0, sx * 0.3], [0.5, 1.1, 1.5]);
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2;
       b.add(Horn([[Math.cos(a) * 0.1, 0.9, 0.42 + Math.sin(a) * 0.1], [Math.cos(a) * 0.12, 1.02, 0.42 + Math.sin(a) * 0.12]], 0.03, 0.005), 0xffc53a);
@@ -426,6 +429,8 @@ export function bruteGeometry(boss = false) {
   b.add(Cyl(0.035, 0.05, 0.8, 8), PAL.wood, [0.55, 0.6, 0.25], [0.6, 0, 0], 1, { limb: [0.6, 0], pivot: [0, 0.92, 0] });
   b.add(Blob(0.14, 1, 0.3, 3), 0x6b4a2a, [0.55, 0.8, 0.55], [0, 0, 0], 1, { limb: [0.6, 0], pivot: [0, 0.92, 0] });
   if (boss) {
+    for (const sx of [-1, 1]) b.add(new THREE.OctahedronGeometry(0.19, 0), 0xffd77b, [sx * 0.34, 0.91, 0.02], [0, 0, sx * 0.3], [1.2, 0.65, 1.2]);
+    b.add(new THREE.OctahedronGeometry(0.13, 0), 0xffe9a5, [0, 0.82, 0.37], [0, 0, 0], [1, 1.2, 0.3]);
     for (let i = 0; i < 7; i++) {
       const a = (i - 3) * 0.3;
       b.add(Sph(0.07, 10, 8), [0xe8622a, 0xffc53a, 0x2a8a4a][i % 3], [Math.sin(a) * 0.3, 1.34 + Math.cos(a) * 0.1, 0], [0, 0, -a], [0.5, 2.4, 0.3]);

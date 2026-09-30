@@ -39,6 +39,7 @@
       <button class="icon-btn" id="pauseBtn" aria-label="Pause">❚❚</button>
     </div>
     <div class="combat-row"><span class="combat-stat" id="waveStat">VAGUE 1</span><span class="combat-stat"><b id="killStat">0</b> éliminés</span><span class="combat-stat" id="comboStat">Combo ×0</span><span class="combat-stat threat-stat" id="threatStat"><b id="enemyStat">0</b> en approche</span></div>
+    <div class="mission-hud" id="missionHud">Percée</div>
     <div id="dangerCue" class="danger-cue hidden" role="status"></div>
     <button id="abilityBtn" class="ability-btn ready" aria-label="Activer Onde des ancêtres"><strong>✦</strong><span id="abilityLabel">Onde des ancêtres</span><small id="abilityHint">ESPACE · Repousse la horde</small><span class="ability-track" aria-hidden="true"><span id="abilityFill"></span></span></button>
     <div id="bossBar" class="boss hidden">
@@ -67,13 +68,19 @@
       </h1>
       <p class="menu-description">Rassemble ta troupe. Défie la horde.<br>Fais de chaque pierre une légende.</p>
       <div class="mission-row"><span>EXPÉDITION</span><div class="menu-level" id="menuLevel">Niveau 1</div></div>
+      <div class="mission-brief"><strong id="missionTitle">Percée</strong><p id="missionBrief">Traverse la horde et terrasse son chef.</p><span id="missionObjective">Objectif : vaincre le boss</span></div>
       <button class="big-btn" id="playBtn"><span>Partir à l’aventure</span><span aria-hidden="true">↗</span></button>
       <div class="shop">
         <div class="shop-title"><span>Préparer la troupe<small>Des améliorations permanentes</small></span> <span class="pill coin small"><span class="coin-ico"></span><span id="shopCoins">0</span></span></div>
         <div class="shop-grid" id="shopGrid"></div>
       </div>
+      <section class="doctrine-section" aria-labelledby="doctrineHeading">
+        <div class="doctrine-heading"><h3 id="doctrineHeading">Style de combat</h3><span id="doctrineUnlock">Dès le niveau 2</span></div>
+        <div id="doctrineChoices" class="doctrine-choices" role="radiogroup" aria-labelledby="doctrineHeading" aria-describedby="doctrineUnlock"></div>
+      </section>
       <div class="menu-foot">
         <button class="icon-btn" id="muteBtn" aria-label="Son">🔊</button>
+        <button class="link-btn" id="leaderboardBtn">Classements ↗</button>
         <button class="link-btn" id="helpBtn">Guide de terrain <span aria-hidden="true">↗</span></button>
       </div>
     </div>
@@ -89,7 +96,7 @@
         <li><b>À droite</b> : le Gardien protège des renforts <b>géants</b>. Attention à ses rochers (cercle rouge) !</li>
         <li><b>Onde des ancêtres</b> : touche Espace ou bouton ✦ pour repousser les ennemis proches et accélérer tes tirs pendant 4 secondes. Recharge : 16 secondes.</li>
         <li><b>Combo</b> : enchaîne les éliminations sans attendre pour battre ton record.</li>
-        <li>Bats le <b>boss</b> (Grand Fétiche, Buffle Géant ou Reine Hyène) pour gagner. Dépense tes pièces en améliorations.</li>
+        <li><b>Chaque expédition change</b> : perce les rangs et terrasse le boss, tiens jusqu’au bout en survie ou traque les élites. Consulte l’objectif avant de partir.</li>
       </ul>
       <button class="big-btn" id="helpClose">OK !</button>
     </div>
@@ -111,6 +118,37 @@
       <div id="resultStats" class="result-stats"></div>
       <button class="big-btn" id="endBtn">Suivant</button>
       <button class="big-btn alt" id="endMenu">Améliorations</button>
+      <button class="link-btn" id="endLeaderboard">Publier mon score · Classements ↗</button>
+    </div>
+  </div>
+
+
+  <div id="leaderboard" class="screen hidden" role="dialog" aria-modal="true" aria-labelledby="leaderboardTitle">
+    <div class="menu-card leaderboard-card">
+      <div class="eyebrow">LE TABLEAU DES LÉGENDES</div><h2 id="leaderboardTitle">À vous la gloire.</h2>
+      <p class="dialog-intro">Compare tes expéditions au monde entier ou à tes amis. Classement bêta : résultats déclarés par le jeu, sans validation anti-triche complète.</p>
+      <div class="leaderboard-tabs" role="tablist" aria-label="Classement">
+        <button id="worldTab" role="tab" aria-selected="true" aria-controls="boardPanel">Mondial</button>
+        <button id="friendsTab" role="tab" aria-selected="false" aria-controls="boardPanel" tabindex="-1">Amis</button>
+      </div>
+      <div id="boardPanel" role="tabpanel" aria-labelledby="worldTab">
+        <p id="boardStatus" class="board-status" role="status" aria-live="polite">Connexion au classement…</p>
+        <ol id="boardEntries" class="board-entries" aria-label="Meilleurs scores"></ol>
+      </div>
+      <div id="friendSettings" class="hidden profile-section">
+        <label for="friendCode">Ajouter un ami avec son code</label>
+        <div class="input-action"><input id="friendCode" maxlength="10" autocomplete="off" placeholder="Code de ton ami" /><button id="joinFriends" type="button">Ajouter</button></div>
+        <p class="field-hint">Ton code : <strong id="ownFriendCode">disponible après activation du partage</strong></p>
+      </div>
+      <form id="scoreForm" class="profile-section">
+        <label for="playerName">Ton pseudonyme public</label>
+        <input id="playerName" minlength="3" maxlength="20" autocomplete="nickname" placeholder="Ex. Éclat de savane" required />
+        <label class="consent-label"><input id="scoreConsent" type="checkbox" required /> J’active le partage et accepte de publier mon pseudonyme et mes résultats.</label>
+        <p id="scoreSummary" class="field-hint">Termine une expédition pour proposer ton score.</p>
+        <button id="publishScore" class="big-btn" type="submit" disabled>Publier mon score</button>
+        <p id="submitStatus" class="field-hint" role="status" aria-live="polite"></p>
+      </form>
+      <div class="board-footer"><button id="refreshBoard" class="link-btn">Actualiser</button><button id="closeBoard" class="big-btn alt">Retour</button></div>
     </div>
   </div>
 

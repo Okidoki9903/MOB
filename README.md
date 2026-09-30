@@ -73,10 +73,24 @@ Les tests couvrent la portée et la recharge de la capacité, son blocage hors c
 
 Chaque personnage arme réellement son lance-pierre : le bras tire la poche et les deux branches de l’élastique, puis la main poursuit son mouvement au relâchement. Le cycle est synchronisé avec les tirs et fonctionne sur les cinq armes.
 
-Toutes les vagues contiennent désormais **4 fois plus d’ennemis que la précédente version renforcée** : le niveau 1 comporte 5 340 ennemis, plus le boss (20 fois le volume initial). Des renforts en file attendent une place dans les groupes actifs ; aucun ennemi prévu n’est abandonné lorsque la limite est atteinte. La victoire attend également la fin des renforts.
+Toutes les vagues contiennent désormais **4 fois plus d’ennemis que la précédente version renforcée** : le niveau 1 comporte 5 340 ennemis, plus le boss (20 fois le volume initial). Des renforts en file attendent une place dans les groupes actifs ; aucun ennemi prévu n’est abandonné lorsque la limite est atteinte. En mission de percée, la victoire attend également la fin des renforts.
 
-Les ennemis ordinaires gagnent 25 % de points de vie. Les projectiles expirent après 14 mètres, les assauts se rapprochent dès la troisième vague et le recul des explosions est plafonné : les bandits peuvent enfin atteindre la troupe. Les silhouettes et les sons distinguent impact, élimination et perte alliée. Le HUD sépare les éliminations des ennemis en approche et signale la pression proche.
+La résistance progresse désormais par vague pour suivre les nouvelles armes. Les buffles apparaissent dès la première mission et résistent aux explosions ; les dégâts de zone ont une limite de cibles. Les assauts alternent avec de courtes respirations, les derniers renforts ne restent plus bloqués derrière les premières vagues. Les projectiles expirent après 14 mètres et le recul est plafonné. Le premier niveau garde une résistance réduite pour permettre le recrutement initial.
 
 Les armes avancées restent enfouies jusqu’aux vagues 2, 3 et 4 (avec délais minimums de 12, 28 et 44 secondes), puis sortent du sol à proximité avec de la poussière. Elles ne captent aucun projectile tant qu’elles sont cachées.
 
-La simulation déterministe (`node tests/balance-sim.mjs`) utilise les règles réelles sans rendu. Sur cinq graines au niveau 1 sans améliorations permanentes, le bot gagne trois fois ; les éliminations moyennes se font à 10–14 mètres. Au niveau 3 avec deux améliorations dans chaque catégorie, il gagne cinq fois sur cinq. Ce contrôle ne remplace pas un essai humain sur téléphone.
+La simulation déterministe (`node tests/balance-sim.mjs`) utilise les règles réelles sans rendu et mesure la pression par tranches de 15 secondes. Les trois graines contrôlées au niveau 1 sans améliorations gagnent en 96–100 secondes, avec des éliminations tardives à 8–10 mètres et des ennemis qui approchent encore à la fin. Ce contrôle ne remplace pas un essai humain sur téléphone.
+
+### Campagne et styles de combat
+
+Les niveaux alternent cinq objectifs : éliminer la horde, tenir jusqu’à l’évacuation, vaincre trois champions successifs, recruter 120 enfants et tenir jusqu’à l’extraction, puis détruire le Gardien et le chef. Le briefing et le HUD donnent l’objectif exact. Les missions de survie, de chasse et de sauvetage peuvent terminer sans éliminer tous les renforts.
+
+Dès le niveau 2, un style gratuit peut être choisi avant une expédition : **Onde** (repoussement et cadence), **Bastion** (8 pertes absorbées pendant 4 secondes, onde affaiblie), **Assaut** (cadence +140 % pendant 2,5 secondes, aucune onde). Le choix est sauvegardé et ne peut pas changer pendant un combat.
+
+Sur mobile, le rendu limite les corps et particules, garde les ombres des personnages et boss mais retire celles des hordes, et plafonne la résolution initiale. Les buffers graphiques ne transfèrent que leurs instances actives et le HUD est actualisé à 10 Hz. Aucun débit d’images sur téléphone physique ni capacité de millions de joueurs n’a été mesuré.
+
+### Classement mondial et amis
+
+Le panneau partagé, les codes amis, l’identité anonyme et la soumission volontaire des résultats sont intégrés. Ils restent **désactivés sans projet Supabase configuré**. Voir [la procédure d’activation](docs/LEADERBOARD.md) et `src/leaderboard-config.js`.
+
+La base calcule le score et contrôle les tickets, l’identité, les délais et les bornes ; elle ne rejoue pas la partie pour prouver les résultats. Le classement est donc présenté comme une bêta de résultats déclarés. Avant une compétition publique importante, ajouter une validation de partie autoritaire et réaliser les tests de charge. La migration a passé 17 contrôles sur PostgreSQL isolé en mémoire ; l’authentification hébergée et le parcours multiappareils restent à valider dans le projet Supabase.
