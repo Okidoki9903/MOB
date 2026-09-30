@@ -8,6 +8,30 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 }});
 const { Game, makeLevel, upgradeCost, WEAPONS } = await import('../src/game.js');
 const noop = () => {};
+test('combat styles unlock after the first level and cannot be swapped during combat', () => {
+  const g = Object.create(Game.prototype); g.save = {level:1,doctrine:'balanced'}; g.state='menu'; g.writeSave=noop;
+  assert.equal(g.setDoctrine('bastion'),false);
+  g.save.level=2; assert.equal(g.setDoctrine('bastion'),true);
+  assert.equal(g.save.doctrine,'bastion');
+  assert.equal(g.setDoctrine('unknown'),false);
+  g.state='playing'; assert.equal(g.setDoctrine('assault'),false);
+});
+test('bastion protects a finite loss budget only while its ability is active', () => {
+  const g = combat(); g.save.level=2; g.save.doctrine='bastion'; g.kids=[]; g.syncKids=noop; g.sound.hurt=noop;
+  g.activateAbility();
+  g.loseUnits(6); assert.equal(g.army.count,25); assert.equal(g.ability.shield,2);
+  g.loseUnits(5); assert.equal(g.army.count,22); assert.equal(g.ability.shield,0);
+  g.ability.shield=8; g.ability.duration=0;
+  g.loseUnits(4); assert.equal(g.army.count,18);
+});
+test('assault trades the damaging shockwave for a short firing burst', () => {
+  const g = combat(); g.save.level=2; g.save.doctrine='assault';
+  const enemy = {type:'imp',hp:5,x:0,z:-5}; g.enemies=[enemy];
+  assert.equal(g.activateAbility(),true);
+  assert.equal(enemy.hp,5); assert.equal(g.ability.shield,0);
+  assert.equal(g.ability.duration,2.5); assert.equal(g.ability.cooldown,18);
+  assert.equal(g.combatDoctrine().rate,2.4);
+});
 function combat() {
   const game = Object.create(Game.prototype);
   Object.assign(game, {
@@ -130,9 +154,9 @@ test('all weapons expire after fourteen metres instead of hitting enemies at spa
   }
 });
 
-test('regular enemies gain twenty-five percent health while boss health stays stable', () => {
+test('enemy durability rises by actual wave while the opening mission remains approachable', () => {
   const waves = makeLevel(1).waves;
-  assert.deepEqual(waves.map(w => w.hp), [1.5, 3, 6, 10, 14].map(hp => hp * 1.25));
+  assert.deepEqual(waves.map(w => w.hp), [1.5, 3, 6, 10, 14].map((hp, i) => hp * 1.25 * 0.65 * [1, 2, 2.2, 3.5, 4.5][i]));
   assert.equal(waves.at(-1).boss, 5000);
 });
 
@@ -154,4 +178,61 @@ test('combo feedback is limited to milestones with a two-second cooldown', () =>
   g.elapsed += 2;
   for (let i = 0; i < 25; i++) g.registerCombo();
   assert.equal(displays, 2);
+});
+
+
+test('campaign cycles five distinct objectives with meaningful mission parameters', () => {
+  const levels = Array.from({length: 12}, (_, i) => makeLevel(i + 1));
+  assert.equal(new Set(levels.map(l => l.mission.id)).size, 5);
+  assert.ok(levels.every(l => l.mission.title && l.mission.objective && l.mission.brief));
+  assert.equal(levels[2].waves.filter(w => w.boss).length, 3);
+  assert.equal(new Set(levels[2].waves.filter(w => w.boss).map(w => w.bossType)).size, 3);
+});
+
+test('mission victory checks use elapsed survival, saved recruits, and each boss objective', () => {
+  const g = combat(); g.army.count = 10;
+  g.level = makeLevel(2); g.elapsed = g.level.mission.target - 0.1;
+  assert.equal(g.objectiveComplete(), false);
+  g.elapsed += .2; assert.equal(g.objectiveComplete(), true);
+  g.level = makeLevel(3); g.bossesDefeated = 2;
+  assert.equal(g.objectiveComplete(), false);
+  g.bossesDefeated = 3; assert.equal(g.objectiveComplete(), true);
+  g.level = makeLevel(4); g.recruited = 120; g.elapsed = 79;
+  assert.equal(g.objectiveComplete(), false);
+  g.elapsed = 80; assert.equal(g.objectiveComplete(), true);
+  g.level = makeLevel(5); g.bossesDefeated = 1; g.guardianDefeated = false;
+  assert.equal(g.objectiveComplete(), false);
+  g.guardianDefeated = true; assert.equal(g.objectiveComplete(), true);
+});
+
+test('splash has a finite target budget and heavy armor resists blast damage', () => {
+  const g = combat();
+  const targets = Array.from({length: 8}, (_, i) => ({ type: i === 0 ? 'brute' : 'imp', hp: 100, x: 0, z: 0, kb: 0, mass: i === 0 ? 3 : 1 }));
+  const grid = new Map([[(64 << 10) | 512, targets]]);
+  g.splash({ x: 0, z: 0, splash: 1, dmg: 10 }, grid, 1.6);
+  assert.equal(targets.filter(e => e.hp < 100).length, 4);
+  assert.ok(targets[0].hp > targets[1].hp);
+});
+
+
+test('a full species pool does not stall other eligible reinforcement types', () => {
+  const g = combat();
+  g.reinforcements = [{ wave: { hp: 1, pressure: 2, mix: { imp: 1, hyena: 1 } }, remaining: 12 }];
+  g.spawnClock = 0; g.elapsed = 60;
+  g.enemies = Array.from({ length: 520 }, () => ({ type: 'imp' }));
+  g.updateReinforcements(1);
+  assert.equal(g.reinforcements.length, 0);
+  assert.equal(g.enemies.filter(e => e.type === 'hyena').length, 12);
+});
+
+test('scheduled champions queue behind the living boss instead of replacing it', () => {
+  const g = combat(); g.level = makeLevel(3); g.waveIdx = 3;
+  g.sound.laugh = noop; g.sound.roar = noop;
+  g.reinforcements = []; g.bossQueue = [];
+  const firstBoss = { hp: 500, isBoss: true };
+  g.boss = firstBoss;
+  g.spawnWave(g.level.waves[3]);
+  assert.equal(g.boss, firstBoss);
+  assert.equal(g.bossQueue.length, 1);
+  assert.equal(g.bossQueue[0].boss, g.level.waves[3].boss);
 });
